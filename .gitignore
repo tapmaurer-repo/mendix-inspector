@@ -1,0 +1,29 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+.idea/
+.vscode/
+*.sublime-*
+
+# Node (in case we add build tools later)
+node_modules/
+npm-debug.log
+
+# Temp files
+*.tmp
+*.temp
+*.log
+
+# Build artifacts
+dist/
+
+# Local releases folder (not tracked in git)
+releases/
+
+# Chrome extension artifacts
+*.crx
+*.pem
