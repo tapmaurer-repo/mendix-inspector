@@ -113,6 +113,43 @@
     
     return val;
   }
+
+  /**
+   * v0.2.46 — Resolve a Mendix attribute's logical type ("DateTime", "String",
+   * "Integer", "Decimal", "Boolean", "AutoNumber", "Long", "Enum", etc.).
+   * Returns "" when the type cannot be determined. Tries (in order):
+   *   1. Dojo client's mxObj.getAttributeType(name)
+   *   2. _jsonData.attributes[name].type / .metaType
+   *   3. A heuristic from the attribute name + value for common patterns
+   */
+  function getAttributeType(mxObj, name, value) {
+    try {
+      if (mxObj && typeof mxObj.getAttributeType === 'function') {
+        var t = mxObj.getAttributeType(name);
+        if (t) return String(t);
+      }
+    } catch (e) {}
+    try {
+      var j = mxObj && (mxObj._jsonData || mxObj.jsonData);
+      if (j && j.attributes && j.attributes[name]) {
+        var a = j.attributes[name];
+        if (a.type) return String(a.type);
+        if (a.metaType) return String(a.metaType);
+        if (a.$type) return String(a.$type);
+      }
+    } catch (e) {}
+    // Heuristic fallback — only for names that strongly signal DateTime.
+    // We intentionally DON'T guess based on a value like 1776689202634
+    // alone, because a Long/AutoNumber could share that shape.
+    try {
+      if (typeof name === 'string') {
+        if (/(^|[_.])(created|changed)Date$/i.test(name)) return 'DateTime';
+        if (/Date$|DateTime$|Timestamp$|At$/i.test(name) && typeof value === 'number' && value > 0) return 'DateTime';
+      }
+    } catch (e) {}
+    return '';
+  }
+  MxDataExtractor.getAttributeType = getAttributeType;
   
   /**
    * Extract ALL attributes and their values from an MxObject
@@ -138,7 +175,8 @@
           attrNames.forEach(function(name) {
             try {
               var value = mxObj.get ? mxObj.get(name) : null;
-              attributes.push({ name: name, value: unwrapValue(value) });
+              var unwrapped = unwrapValue(value);
+              attributes.push({ name: name, value: unwrapped, type: getAttributeType(mxObj, name, unwrapped) });
             } catch(e) {}
           });
         }
@@ -152,7 +190,8 @@
           var exists = attributes.some(function(a) { return a.name === name; });
           if (!exists) {
             var rawVal = jsonAttrs[name];
-            attributes.push({ name: name, value: unwrapValue(rawVal) });
+            var unwrapped = unwrapValue(rawVal);
+            attributes.push({ name: name, value: unwrapped, type: getAttributeType(mxObj, name, unwrapped) });
           }
         });
       }
@@ -165,7 +204,8 @@
           if (!exists) {
             var rawVal2 = jsonAttrs2[name];
             var val2 = (rawVal2 && typeof rawVal2 === 'object' && 'value' in rawVal2) ? rawVal2.value : rawVal2;
-            attributes.push({ name: name, value: unwrapValue(val2) });
+            var unwrapped = unwrapValue(val2);
+            attributes.push({ name: name, value: unwrapped, type: getAttributeType(mxObj, name, unwrapped) });
           }
         });
       }
@@ -175,7 +215,8 @@
         Object.keys(mxObj._attributes).forEach(function(name) {
           var exists = attributes.some(function(a) { return a.name === name; });
           if (!exists) {
-            attributes.push({ name: name, value: unwrapValue(mxObj._attributes[name]) });
+            var unwrapped = unwrapValue(mxObj._attributes[name]);
+            attributes.push({ name: name, value: unwrapped, type: getAttributeType(mxObj, name, unwrapped) });
           }
         });
       }
@@ -232,6 +273,104 @@
     return { attributes: attributes, associations: associations };
   };
   
+  /**
+   * v0.2.17 — Read Mendix system members (createdDate, changedDate, owner,
+   * createdBy, changedBy) from an MxObject. These live outside the regular
+   * attributes array — on the object itself or on _jsonData. Different client
+   * versions expose them differently, so we try multiple paths.
+   *
+   * Returns an array of { name, value, raw } entries for whichever members
+   * are actually present. Missing members are omitted (no empty rows).
+   */
+  MxDataExtractor.getSystemMembers = function(mxObj) {
+    if (!mxObj) return [];
+    var out = [];
+    var seen = {};
+
+    function push(name, raw, formatted) {
+      if (seen[name]) return;
+      if (raw === null || raw === undefined || raw === '') return;
+      seen[name] = true;
+      out.push({ name: name, value: formatted, raw: raw });
+    }
+
+    function fmtDate(v) {
+      if (v === null || v === undefined || v === '') return null;
+      // Mendix returns unix ms timestamps as numbers or numeric strings
+      var n = typeof v === 'number' ? v : parseInt(v, 10);
+      if (isNaN(n)) return String(v);
+      try {
+        var d = new Date(n);
+        if (isNaN(d.getTime())) return String(v);
+        return d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z');
+      } catch (e) { return String(v); }
+    }
+
+    try {
+      // --- Method 1: Dojo-style getter methods (Mendix 7-9) ---
+      if (typeof mxObj.getCreatedDate === 'function') {
+        try { var cd = mxObj.getCreatedDate(); push('createdDate', cd, fmtDate(cd)); } catch (e) {}
+      }
+      if (typeof mxObj.getChangedDate === 'function') {
+        try { var ch = mxObj.getChangedDate(); push('changedDate', ch, fmtDate(ch)); } catch (e) {}
+      }
+      if (typeof mxObj.getOwnerGUID === 'function') {
+        try { var og = mxObj.getOwnerGUID(); push('owner', og, String(og)); } catch (e) {}
+      }
+
+      // --- Method 1b: v0.2.19 — Mendix 10 React client exposes system members
+      //     via mxObj.get('System.createdDate') etc. ---
+      if (typeof mxObj.get === 'function') {
+        ['System.createdDate', 'System.changedDate', 'System.owner', 'System.createdBy', 'System.changedBy']
+          .forEach(function (key) {
+            try {
+              var v = mxObj.get(key);
+              if (v !== undefined && v !== null) {
+                var short = key.split('.').pop();
+                var isDate = short === 'createdDate' || short === 'changedDate';
+                push(short, v, isDate ? fmtDate(v) : String(v));
+              }
+            } catch (e) {}
+          });
+      }
+
+      // --- Method 2: _jsonData fields (modern client) ---
+      var j = mxObj._jsonData;
+      if (j) {
+        if ('createdDate' in j)   push('createdDate',   j.createdDate,   fmtDate(j.createdDate));
+        if ('changedDate' in j)   push('changedDate',   j.changedDate,   fmtDate(j.changedDate));
+        if ('owner' in j)         push('owner',         j.owner,         String(j.owner));
+        if ('ownerGUID' in j)     push('owner',         j.ownerGUID,     String(j.ownerGUID));
+        if ('createdBy' in j)     push('createdBy',     j.createdBy,     String(j.createdBy));
+        if ('changedBy' in j)     push('changedBy',     j.changedBy,     String(j.changedBy));
+        // Some clients store these under attributes too with System.* prefix
+        if (j.attributes) {
+          if ('System.createdDate' in j.attributes)
+            push('createdDate', j.attributes['System.createdDate'],
+                 fmtDate(unwrapValue(j.attributes['System.createdDate'])));
+          if ('System.changedDate' in j.attributes)
+            push('changedDate', j.attributes['System.changedDate'],
+                 fmtDate(unwrapValue(j.attributes['System.changedDate'])));
+          if ('System.owner' in j.attributes)
+            push('owner', j.attributes['System.owner'],
+                 String(unwrapValue(j.attributes['System.owner'])));
+        }
+      }
+
+      // --- Method 3: direct properties on mxObj ---
+      if (mxObj.createdDate != null && !seen.createdDate)
+        push('createdDate', mxObj.createdDate, fmtDate(mxObj.createdDate));
+      if (mxObj.changedDate != null && !seen.changedDate)
+        push('changedDate', mxObj.changedDate, fmtDate(mxObj.changedDate));
+      if (mxObj.ownerGUID != null && !seen.owner)
+        push('owner', mxObj.ownerGUID, String(mxObj.ownerGUID));
+    } catch (e) {
+      console.warn('[MxInspector] getSystemMembers error:', e);
+    }
+
+    return out;
+  };
+
   /**
    * Get the GUID of an MxObject
    */
@@ -375,6 +514,15 @@
       associations: []
     };
     
+    // v0.2.19 — Determine what kind of data this element holds so we can stop
+    // the fiber walk at the right boundary. Critical: a DataView inside a
+    // ListView's row template must NOT inherit the listview's items[]; we
+    // must only read the DataView's own mxObject.
+    var cn = element.className || '';
+    if (typeof cn !== 'string') cn = cn.baseVal || '';
+    var isSingleObjectContainer = /\bmx-dataview\b/.test(cn);
+    var isListContainer = /\bmx-listview\b|\bmx-templategrid\b|widget-datagrid|widget-gallery/.test(cn);
+    
     var depth = 0;
     var maxDepth = 40;
     
@@ -505,6 +653,22 @@
         }
       }
       
+      // v0.2.19 — Stop walking up once we've satisfied what this element holds:
+      //   - If it's a DataView and we have a single mxObject → done
+      //   - If it's a ListView/Gallery/Grid and we have items[] → done
+      //   - If it's an unknown container and we have EITHER → done (prefer single-obj)
+      // This prevents a DataView inside a ListView row from inheriting the
+      // listview's 25 items[] when it only has 1 specific mxObject.
+      if (isSingleObjectContainer && data.mxObject) {
+        break;
+      }
+      if (isListContainer && data.items && data.items.length > 0) {
+        break;
+      }
+      if (!isSingleObjectContainer && !isListContainer && (data.mxObject || (data.items && data.items.length > 0))) {
+        break;
+      }
+
       fiber = fiber.return;
       depth++;
     }

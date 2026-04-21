@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MxInspector",
-  "description": "Mendix Page Inspector & Debugger - Analyze performance, accessibility, security, and more. React client support!",
-  "version": "1.3.0",
+  "description": "Mendix Page Inspector & Debugger. A Chrome extension for Mendix developers — drops a dockable panel onto any Mendix app that surfaces page structure, data sources, widgets, performance, accessibility, CSS, security, session context, and the full object graph. Click-through layer picker (alt+click), X-Ray mode for data containers, Data Inspector with search & drill, PDF export, live data-source autorefresh, security scanner with secret detection. Version 0.2.0.",
+  "version": "0.2.0",
   "author": "Tim Maurer",
   
   "icons": {
@@ -49,7 +49,13 @@
   
   "web_accessible_resources": [
     {
-      "resources": ["content/inspector.js", "content/mx-data-extractor.js"],
+      "resources": [
+        "content/inspector.js",
+        "content/mx-data-extractor.js",
+        "content/mxi-layer-stack.js",
+        "content/mxi-data-panel.js",
+        "content/mxi-security.js"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

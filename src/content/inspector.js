@@ -58,7 +58,280 @@ edit:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="curren
 
 
 /* ===== TOOLTIPS ===== */
-var TIPS={load:"Page load time. Under 2s is good, over 4s is poor.",dom:"DOM nodes affect rendering. Keep under 2000.",requests:"Total HTTP requests. Fewer is better.",memory:"High memory can cause slowdowns.",fcp:"First Contentful Paint. Target under 1.8s.",lcp:"Largest Contentful Paint. Target under 2.5s.",transfer:"Total data transferred.",depth:"Deep nesting slows rendering.",dataviews:"Data containers. Nesting multiplies requests.",listviews:"List containers. Watch for pagination needs.",templategrid:"Grid with custom cell templates. Can multiply like ListView.",datagrid2:"Modern data grids with built-in virtualization.",galleries:"Card/image grid containers.",treenode:"Hierarchical recursive data. Very high nesting risk!",nesting:"Nested containers multiply database calls and slow rendering.",snippets:"Reusable fragments improve maintainability.",microflows:"Server-side actions. 15+ on a page can slow load times — each requires a server round-trip.",nanoflows:"Client-side logic. Fast but watch complexity.",datasources:"Database calls are expensive. Minimize where possible.",pluggable:"Custom widgets. Check for performance impact.",conditional:"Hidden elements still render initially, affecting load time.",a11yScore:"WCAG compliance score. 90+ is AA level.",altText:"Required for screen readers.",formLabels:"Required for accessibility.",headings:"Proper H1→H2→H3 hierarchy.",emptyLinks:"Links need text for screen readers.",duplicateIds:"Break accessibility and JS.",userRoles:"Security roles affect permissions.",xhr:"XMLHttpRequest/fetch calls to server.",static:"CSS, JS, images, fonts loaded.",contrast:"WCAG requires 4.5:1 for normal text, 3:1 for large text.",smallFont:"WCAG recommends minimum 12px font size for readability.",touchTargets:"Clickable elements should be at least 44x44px for mobile.",secConstants:"Exposed constants in JS can leak sensitive configuration.",secEntities:"Entity names with sensitive keywords may indicate data exposure.",secMicroflows:"Microflow names revealing business logic can aid attackers.",secForms:"Form inputs without proper validation are vulnerable to attacks.",secUrl:"Sensitive data in URLs can be logged and leaked.",secCve:"Known vulnerabilities in this Mendix version should be patched."};
+/* v0.2.47 — Structured tooltip content. Each entry carries what/aim so users
+ * know what they're measuring AND what a good target value is. */
+var TIPS = {
+  load: {
+    what: "Total page load time from navigation start to fully loaded.",
+    aim:  "Under 2s is good. 2-4s is fair. Over 4s is poor.",
+    details: ["Measured via <code>performance.timing</code>", "Includes all network requests, CSS, JS, and render time"]
+  },
+  dom: {
+    what: "Total number of DOM nodes rendered on the page.",
+    aim:  "Under 1500 is healthy. 1500-2500 is fair. Over 2500 hurts rendering & interaction time.",
+    details: ["Deep trees compound the cost", "Mendix list/datagrid rows multiply fast — virtualise when possible"]
+  },
+  requests: {
+    what: "Total HTTP requests made during page load (XHR, CSS, JS, images, fonts).",
+    aim:  "Under 50 is good, 50-100 is fair, over 100 is heavy.",
+    details: ["Each request costs round-trip time", "Combine assets and lazy-load images where possible"]
+  },
+  memory: {
+    what: "JavaScript heap size currently used by the page.",
+    aim:  "Under 50MB is healthy, 50-100MB is fair, over 100MB risks slowdowns on lower-end devices.",
+    details: ["Only exposed in Chromium browsers", "Memory leaks usually show up after navigation, not at load"]
+  },
+  fcp: {
+    what: "First Contentful Paint — time until the first text or image paints.",
+    aim:  "Under 1.8s is good, 1.8-3.0s is fair, over 3.0s is poor (Google Core Web Vitals).",
+    details: ["Strong correlation with perceived load speed", "Improve by reducing render-blocking CSS/JS"]
+  },
+  lcp: {
+    what: "Largest Contentful Paint — time until the largest above-the-fold element finishes painting.",
+    aim:  "Under 2.5s is good, 2.5-4.0s is fair, over 4.0s is poor (Google Core Web Vitals).",
+    details: ["Usually the hero image or main heading", "Optimise hero images, preload key resources"]
+  },
+  ttfb: {
+    what: "Time To First Byte — time from navigation start until the first byte of the response arrives.",
+    aim:  "Under 600ms is good, 600-1500ms is fair, over 1500ms suggests server or network delay.",
+    details: ["Measures server response + network latency", "Slow TTFB often means backend microflow or cold start", "Mendix Cloud Acceptance is typically slower than Production"]
+  },
+  cls: {
+    what: "Cumulative Layout Shift — how much the page jumps around while loading. Lower is better.",
+    aim:  "Under 0.1 is good, 0.1-0.25 is fair, over 0.25 is poor (Google Core Web Vitals).",
+    details: ["Caused by images without dimensions, late-loading fonts, injected content", "Reserve space for dynamic content"]
+  },
+  transfer: {
+    what: "Total bytes transferred over the network during page load.",
+    aim:  "Under 2MB is healthy, 2-5MB is fair, over 5MB is heavy — especially on mobile.",
+    details: ["Includes compressed size (gzip/brotli)", "Images and JS bundles are usually the biggest contributors"]
+  },
+  depth: {
+    what: "Maximum DOM nesting depth from the body down to the deepest leaf.",
+    aim:  "Under 15 levels is healthy, 15-25 is fair, over 25 slows layout & reflow significantly.",
+    details: ["Mendix layouts can nest deeply — flatten where possible", "Deep trees hurt CSS selector performance"]
+  },
+  dataviews: {
+    what: "Number of DataView containers on the page — single-object data contexts.",
+    aim:  "No hard limit, but each adds a server call. Keep it reasonable per page.",
+    details: ["Nesting DataViews multiplies requests", "Combine data-fetch flows where possible"]
+  },
+  listviews: {
+    what: "Number of ListView containers — paginated lists of objects.",
+    aim:  "1-3 per page is typical. Watch pagination size.",
+    details: ["Large pages load slowly; prefer pagination ≤ 50", "Nesting in a DataView multiplies the pain"]
+  },
+  templategrid: {
+    what: "TemplateGrid containers — grid layouts with custom cell templates.",
+    aim:  "Use sparingly; each cell multiplies rendering like a ListView.",
+    details: ["Behaves like ListView internally", "Expensive templates × many cells = slow"]
+  },
+  datagrid2: {
+    what: "DataGrid 2 containers — modern, virtualised data grids.",
+    aim:  "Preferred for large data — virtualisation means row count matters less than column complexity.",
+    details: ["Scales better than legacy DataGrid / ListView", "Keep row templates simple"]
+  },
+  galleries: {
+    what: "Gallery widgets — card/image grid containers.",
+    aim:  "Fine to use; watch image payload and lazy-loading.",
+    details: ["Add alt text for accessibility", "Use responsive image sizes"]
+  },
+  treenode: {
+    what: "TreeNode widgets — hierarchical, recursive data rendering.",
+    aim:  "Use cautiously. Recursion multiplies server calls at each level.",
+    details: ["Deep trees can compound dozens of roundtrips", "Prefer flat representations when possible"]
+  },
+  nesting: {
+    what: "Nested data containers — a ListView inside a DataView inside another ListView, etc.",
+    aim:  "Zero if possible. Every nested level multiplies database queries.",
+    details: ["A ListView of 20 rows inside a DataView = 20× queries", "Flatten with associations or single microflow data sources"]
+  },
+  nestingNormal: {
+    what: "Data containers nested one level inside another — typical building pattern in Mendix.",
+    aim:  "Normal unless page is slow. If load is slow, these nested sources are likely the cause.",
+    details: ["Color is white when load is fast; turns yellow when load is slow", "Click the eye to highlight all nested containers on the page"]
+  },
+  nestingDeep: {
+    what: "Data containers nested 3+ levels deep — often a code smell.",
+    aim:  "Avoid. Query count grows geometrically with depth (rows × rows × rows).",
+    details: ["Orange when load is fast (still a concern)", "Red when load is slow (actively hurting performance)", "Refactor with associations, denormalized entities, or microflow aggregation"]
+  },
+  dsMicroflows: {
+    what: "Unique DS_-prefixed microflows that actually fired on /xas/ during page load.",
+    aim:  "Minimise repeats. Each call = one round-trip to the server.",
+    details: ["Count badge ×2+ means the microflow was called multiple times on this load — usually because it sits inside a ListView/DataView that repeats per row", "Click the copy icon to grab the full qualified name (paste into Studio Pro Ctrl+Q)", "Captures calls only from the time the extension was active — reload for full page-load view"]
+  },
+  dsOperations: {
+    what: "Unique Mendix 10 runtimeOperation calls fired during page load. Each operation is identified by an opaque hash — the React client no longer sends microflow names over the wire.",
+    aim:  "Same as DS_ microflows: minimise repeats. Each call is still a server round-trip.",
+    details: ["×2+ on the same opId is the nested-data-source fingerprint — same as classic Mendix", "Shape badges (\"list ×50 sorted\") are inferred from the options payload each call carries", "The Edit flag means the operation also wrote data (changes/objects in the request)"]
+  },
+  dsXpath: {
+    what: "Direct database retrieves (retrieve_by_xpath) fired on /xas/.",
+    aim:  "Low is fine. Above ~10 suggests many DataViews or widgets each fetching their own data slice.",
+    details: ["Associations are cheaper than xpath retrieves", "Watch for the same entity being retrieved multiple times — could be consolidated into one microflow"]
+  },
+  dsAssociations: {
+    what: "Association lookups (retrieve_by_association) — following a relationship between entities.",
+    aim:  "These are generally cheap. High counts usually just mean the page has many related objects loaded.",
+    details: ["Not typically a performance concern unless chained across very large collections"]
+  },
+  snippets: {
+    what: "Reusable page fragments — shared UI blocks.",
+    aim:  "Use liberally. Each snippet lowers maintenance cost across pages.",
+    details: ["No real performance penalty", "Makes large apps manageable"]
+  },
+  microflows: {
+    what: "Server-side microflow actions exposed on this page.",
+    aim:  "Under 15 per page. Each microflow means a potential server round-trip.",
+    details: ["Combine repeated queries into single microflows", "Use sub-microflows for shared logic"]
+  },
+  nanoflows: {
+    what: "Client-side nanoflow actions — run in the browser without a server call.",
+    aim:  "Prefer nanoflows over microflows for pure UI logic.",
+    details: ["No network cost", "Watch for complex logic that belongs server-side"]
+  },
+  datasources: {
+    what: "Number of data-fetch calls (database/microflow/nanoflow) triggered by this page.",
+    aim:  "Fewer is better. Reuse context objects via associations where possible.",
+    details: ["Database calls are the most expensive", "Microflow data sources can be cached"]
+  },
+  conditional: {
+    what: "Elements with conditional visibility that still render (hidden via display:none).",
+    aim:  "Under 30 is fine; over 100 bloats the initial DOM even for hidden states.",
+    details: ["Mendix renders hidden widgets upfront — this is normal", "Use conditional rendering in nanoflows for expensive widgets"]
+  },
+  a11yScore: {
+    what: "Overall accessibility score (0-100) based on WCAG 2.1 checks.",
+    aim:  "90+ targets WCAG AA compliance. 80-89 is acceptable. Below 80 has real barriers.",
+    details: ["Combines multiple sub-checks", "Improve by addressing the Insights below"]
+  },
+  altText: {
+    what: "Images without <code>alt</code> attributes.",
+    aim:  "Zero. Every image needs alt text (empty <code>alt=\"\"</code> is OK for decorative).",
+    details: ["Screen readers rely on alt text", "WCAG 1.1.1"]
+  },
+  formLabels: {
+    what: "Form inputs without an associated <code>&lt;label&gt;</code> element.",
+    aim:  "Zero. Every input must have a label (or aria-label).",
+    details: ["Keyboard and screen-reader users depend on this", "WCAG 1.3.1 & 3.3.2"]
+  },
+  headings: {
+    what: "Heading hierarchy issues — missing <code>&lt;h1&gt;</code> or skipped levels (h2 → h4 without h3).",
+    aim:  "Zero skips. Exactly one h1 per page.",
+    details: ["Helps screen-reader users navigate", "WCAG 1.3.1 & 2.4.6"]
+  },
+  emptyLinks: {
+    what: "Links with no accessible text (empty <code>&lt;a&gt;</code> or icon-only without aria-label).",
+    aim:  "Zero. Every link needs readable text.",
+    details: ["WCAG 2.4.4 — link purpose", "For icon links, add <code>aria-label</code>"]
+  },
+  duplicateIds: {
+    what: "Elements sharing the same <code>id</code> attribute.",
+    aim:  "Zero. IDs must be unique per page.",
+    details: ["Breaks labels, scripts, and accessibility", "WCAG 4.1.1 — parsing"]
+  },
+  userRoles: {
+    what: "User roles granted to the current session.",
+    aim:  "Follow least-privilege. Production users shouldn't have admin roles.",
+    details: ["Mendix applies access rules per role", "Test with the lowest-privilege role regularly"]
+  },
+  xhr: {
+    what: "XHR / fetch calls made to the Mendix runtime (<code>/xas/</code>).",
+    aim:  "Minimise on initial load; many calls mean heavy data contexts.",
+    details: ["Each is a backend round-trip", "Batch retrievals with combined microflows"]
+  },
+  static: {
+    what: "Static asset requests — CSS, JS bundles, images, fonts.",
+    aim:  "Combine and cache where possible.",
+    details: ["Mendix serves these from <code>/mxclientsystem/</code>", "Custom widgets and themes add here"]
+  },
+  contrast: {
+    what: "Text/background colour combinations that fail WCAG contrast ratios.",
+    aim:  "Zero. WCAG AA requires 4.5:1 for normal text and 3:1 for large text (≥18pt or ≥14pt bold).",
+    details: ["WCAG 1.4.3", "Use design tokens to enforce contrast app-wide"]
+  },
+  smallFont: {
+    what: "Text elements with font-size below 12px.",
+    aim:  "Zero. 12px is the lower limit for readability; body text should be 14-16px.",
+    details: ["Small fonts fail low-vision users", "Not strictly WCAG but a strong usability signal"]
+  },
+  touchTargets: {
+    what: "Clickable elements smaller than 44×44px — too small for comfortable tapping.",
+    aim:  "Zero on mobile-profiled apps. WCAG AAA suggests 44×44 CSS pixels.",
+    details: ["WCAG 2.5.5 (AAA)", "Add padding to buttons, don't just bump font-size"]
+  },
+  targetSize: {
+    what: "Interactive targets (buttons, links, inputs) smaller than 24×24 CSS pixels.",
+    aim:  "Zero. WCAG 2.2 2.5.8 Target Size (Minimum) is a Level AA requirement.",
+    details: ["Inline links inside paragraphs are exempt", "Add padding/min-height rather than bumping font size"]
+  },
+  accessibleName: {
+    what: "Buttons or links with no text, no aria-label, no aria-labelledby, no title, and no descriptive image alt.",
+    aim:  "Zero. Screen reader users can't identify unnamed controls.",
+    details: ["WCAG 4.1.2 Name, Role, Value (Level A)", "Icon-only buttons need aria-label='Close' or similar"]
+  },
+  iframeTitle: {
+    what: "<code>&lt;iframe&gt;</code> elements without a title attribute.",
+    aim:  "Zero. Every iframe must announce its purpose to assistive tech.",
+    details: ["WCAG 2.4.1 / 4.1.2", "Applies to embedded videos, maps, widgets — anything in an iframe"]
+  },
+  focusVisible: {
+    what: "Interactive elements where :focus has no visible indicator (outline removed, no box-shadow replacement).",
+    aim:  "Zero. Keyboard users need to see where focus is.",
+    details: ["WCAG 2.4.7 (AA), 2.4.13 (AAA — Focus Appearance)", "Check is heuristic — some false positives possible when focus styles come from parent selectors"]
+  },
+  cssStylesheets: {
+    what: "Number of stylesheets loaded on the page (external files + inline <code>&lt;style&gt;</code> blocks).",
+    aim:  "Under 10 is typical. Fewer means less HTTP overhead; more means higher paint cost.",
+    details: ["Mendix usually loads theme.compiled.css, widgets.css, and a handful of inline blocks", "Custom widgets may add their own stylesheets"]
+  },
+  cssRules: {
+    what: "Total number of CSS rules parsed from all stylesheets.",
+    aim:  "Under 10,000 is healthy for a typical business app. Large design systems can push higher.",
+    details: ["Each rule is evaluated on every style recalculation", "Tree-shake unused theme rules in production builds"]
+  },
+  cssInlineStyles: {
+    what: "Elements with a <code>style=\"\"</code> attribute applied directly in the DOM.",
+    aim:  "Under 20. Lots of inline styles usually means JS is computing styles instead of using CSS classes.",
+    details: ["Inline styles win specificity battles, making themes hard to override", "Mendix widgets sometimes use them for dynamic positioning — that's OK"]
+  },
+  cssImportant: {
+    what: "Number of declarations using <code>!important</code>.",
+    aim:  "Under 20 is healthy, 20-50 is a code smell, over 50 suggests structural issues in the theme.",
+    details: ["Each <code>!important</code> makes future overrides harder", "Mendix's own theme uses some — the concern is custom theme additions"]
+  },
+  cssVars: {
+    what: "Number of CSS custom properties defined (<code>--variable</code>).",
+    aim:  "More is generally better — they're the basis of design tokens.",
+    details: ["Atlas UI defines dozens out of the box", "Custom design systems add their own"]
+  },
+  cssMediaQ: {
+    what: "Number of media queries in the stylesheets (responsive breakpoints, print, prefers-*).",
+    aim:  "No hard limit. 50+ is normal for responsive apps; very high counts suggest fragmented breakpoints.",
+    details: ["Includes all @media rules", "Consolidate breakpoints where possible"]
+  },
+  secConstants: {
+    what: "Total count of constants exposed to the browser — Mendix runtime constants (<code>mx.session.sessionData</code>) plus suspicious <code>window.*</code> globals.",
+    aim:  "Zero flagged as secrets. Plain constants are fine; secrets (JWTs, API keys, connection strings) are not.",
+    details: ["Colour reflects worst level present", "Move secrets to backend constants or a secret manager"]
+  },
+  secForms: {
+    what: "Form-input security issues — password autocomplete not disabled, sensitive-named inputs without maxlength, or hidden inputs with sensitive-named fields containing data.",
+    aim:  "Zero, especially on login and payment forms.",
+    details: ["Password autocomplete check is the strongest signal", "Hidden-field check flags potential data leaks"]
+  },
+  secUrl: {
+    what: "URL query parameters matching sensitive keywords (token, apikey, password, etc.).",
+    aim:  "Zero. URLs leak to server logs, referrer headers, and browser history.",
+    details: ["Move credentials into POST bodies or headers", "Finding one is a real issue, not a false positive"]
+  },
+  secCve: {
+    what: "Known Mendix runtime CVEs that may affect the detected version.",
+    aim:  "Zero. Update to the latest LTS or the version noted in the advisory.",
+    details: ["Cross-references <code>docs.mendix.com</code> advisories", "Some flags are conservative — verify against the advisory"]
+  }
+};
 
 /* ===== HELPERS ===== */
 function getClassName(el){if(!el)return"";var cn=el.className;if(!cn)return"";if(typeof cn==="string")return cn;if(cn.baseVal!==undefined)return cn.baseVal;return""}
@@ -66,13 +339,20 @@ var t={loadTime:{warning:2e3,error:4e3},domNodes:{warning:2e3,error:4e3}};
 
 /* ===== DATA OBJECT ===== */
 var i={timestamp:new Date().toISOString(),url:location.href,version:"?",client:"Unknown",module:"Unknown",page:"Unknown",popup:!1,env:"",envType:"Unknown",user:"",roles:"",guest:!1,offline:!1,loadTime:0,firstContentfulPaint:0,largestContentfulPaint:0,ttfb:0,cls:0,fid:null,widgetRenderTime:0,firstWidgetTime:null,lastWidgetTime:null,widgetTimeline:[],slowestWidgets:[],perfTrackerActive:false,isRecording:true,navigationRenderDuration:0,navigationFirstWidget:null,navigationLastWidget:null,navigationWidgetCount:0,domNodes:0,jsHeap:0,totalRequests:0,xhrRequests:0,staticRequests:0,slowRequests:[],largeAssets:[],totalTransferred:0,totalWidgets:0,dataViews:0,listViews:0,dataGrids:0,dataGrid2s:0,galleries:0,templateGrids:0,treeNodes:0,nestedDataViewsWarning:[],nestedDataViewsCritical:[],maxDataViewDepth:0,maxNestingDepth:0,formFields:0,images:0,lazyImages:0,dataViewEntities:[],pageParameters:[],consoleErrors:0,
-snippets:[],snippetCount:0,microflowActions:0,nanoflowActions:0,otherActions:0,conditionalElements:0,
+snippets:[],snippetCount:0,conditionalElements:0,
 dataSources:{database:0,microflow:0,nanoflow:0},
-pluggableWidgets:[],uniquePluggableWidgets:[],marketplaceWidgets:[],
+/* v0.2.64 — Runtime data source call log, populated from perf-tracker.
+ * Keyed by empty defaults so rendering code can assume the shape.
+ * v0.2.67 — Added operations[] and sessionInits for Mendix 10 React client. */
+dataSourceCalls:{microflows:[],otherActions:[],operations:[],xpathRetrieves:0,associationRetrieves:0,commits:0,sessionInits:0},
+/* v0.2.65 — Debug snapshot from perf-tracker for diagnosing zero-capture. */
+dsDebug:{sampleUrls:[],sampleBodies:[],postCount:0,parsedOk:0,parsedFail:0,hadActionField:0,unknownActionTypes:[]},
 widgetTree:null,
-a11y:{totalImages:0,missingAltText:0,totalFormFields:0,missingLabels:0,totalHeadings:0,h1Count:0,headingSkips:0,missingH1:!1,totalLinks:0,emptyLinks:0,duplicateIds:0,missingLang:!1,pageLang:"",missingTitle:!1,contrastIssues:0,smallFontSize:0,focusIssues:0,smallTouchTargets:0,ariaUsage:0,landmarks:0,hasSkipLink:!1,hasMainLandmark:!1,positiveTabindex:0,score:100,wcagLevel:"Unknown",deductions:[],improvements:[]},
+/* v0.2.42 — sourced from mx.session.sessionData.uiconfig + sessionData.locale */
+mxProfile:{kind:"",name:"",title:""},mxLocale:"",mxTranslations:[],
+a11y:{totalImages:0,missingAltText:0,totalFormFields:0,missingLabels:0,totalHeadings:0,h1Count:0,headingSkips:0,missingH1:!1,totalLinks:0,emptyLinks:0,duplicateIds:0,missingLang:!1,pageLang:"",missingTitle:!1,contrastIssues:0,smallFontSize:0,focusIssues:0,smallTouchTargets:0,targetSizeIssues:0,noAccessibleName:0,iframeTitleMissing:0,ariaUsage:0,landmarks:0,hasSkipLink:!1,hasMainLandmark:!1,positiveTabindex:0,score:100,wcagLevel:"Unknown",deductions:[],improvements:[]},
 typography:{fonts:[],fontCounts:{},sizes:[],weights:[],primaryFont:"Unknown",fontCount:0,sizeCount:0},
-security:{exposedConstants:[],sensitiveEntities:[],revealingMicroflows:[],formIssues:[],urlParams:[],inputValidation:[],cveWarnings:[],mixedContent:[],externalScripts:[],localStorageSensitive:[],insecureProtocol:false,score:100},
+security:{exposedConstants:[],sensitiveEntities:[],revealingMicroflows:[],formIssues:[],urlParams:[],inputValidation:[],cveWarnings:[],mixedContent:[],externalScripts:[],localStorageSensitive:[],insecureProtocol:false,mendixConstants:null,demoUsers:null,anonymous:null,devMode:null,writableSensitive:null,endpointProbe:null,score:100},
 warnings:[],score:100,highlightTargets:{}};
 
 function n(e,d){try{return e()}catch(x){return d}}
@@ -80,6 +360,85 @@ function s(e){if(0===e)return"0 B";var t=Math.floor(Math.log(e)/Math.log(1024));
 function o(e){return e<1e3?e+"ms":(e/1e3).toFixed(2)+"s"}
 function a(e,t,n,s){i.warnings.push({type:e,msg:t,impact:n||0,highlightKey:s||null});i.score-=n||0}
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+
+/* v0.2.63 — A11y awareness data. When an insight has a matching
+ * highlightKey in this table, the rendered row gets an info button that
+ * expands an inline panel explaining *who* the issue affects, *why* it
+ * matters, and the *WCAG reference*. The point is to turn score
+ * deductions into learning moments — a lot of Mendix devs have never
+ * heard of most of these criteria, and a one-click explainer pairs
+ * naturally with WCAG's own "understanding" docs.
+ *
+ * Content is written for developers unfamiliar with a11y. Kept short so
+ * the expanded panel doesn't feel like reading a spec. Tone: honest and
+ * direct, not preachy. */
+var A11Y_AWARENESS = {
+  missingAlt: {
+    who:  "Blind and low-vision users relying on screen readers; anyone whose images don't load.",
+    why:  "Screen readers announce only \"image\" or the filename. Users miss icons, product photos, charts — everything visual. Alt text is also a fallback when images fail to load and helps SEO.",
+    wcag: "WCAG 1.1.1 Non-text Content (Level A)"
+  },
+  missingLabels: {
+    who:  "Screen reader users and voice-control users (Dragon, Voice Control, macOS Voice Control).",
+    why:  "Without a label, screen readers announce \"edit\" or \"combo box\" with no indication of what the field is for. Voice users can't say \"click first name\" because the field has no accessible name to target.",
+    wcag: "WCAG 1.3.1 Info and Relationships / 3.3.2 Labels or Instructions (Level A)"
+  },
+  contrastIssues: {
+    who:  "Low-vision users, older adults, people with color-vision deficiencies, anyone reading in bright sunlight.",
+    why:  "Body text needs a 4.5:1 contrast ratio against its background (3:1 for large text). Below that, a meaningful percentage of users literally cannot read the content. It's the single most common WCAG failure on the web.",
+    wcag: "WCAG 1.4.3 Contrast (Minimum) (Level AA)"
+  },
+  targetSizeIssues: {
+    who:  "Users with motor impairments (tremor, limited fine motor control), touch-screen users, older adults.",
+    why:  "Small targets are hard to hit accurately — missed taps cause frustration, and on critical controls (submit, delete) lead to wrong outcomes. WCAG 2.2 made 24×24 a Level AA requirement in 2023; EU EAA enforces this since June 2025 for products sold in the EU.",
+    wcag: "WCAG 2.5.8 Target Size (Minimum) (Level AA, WCAG 2.2)"
+  },
+  noAccessibleName: {
+    who:  "Screen reader users, voice-control users.",
+    why:  "Icon-only buttons with no aria-label announce only their role (\"button\", \"link\") — users have no idea what they do. A common pattern is wrapping an image widget as a button without any text or label.",
+    wcag: "WCAG 4.1.2 Name, Role, Value (Level A)"
+  },
+  iframeTitleMissing: {
+    who:  "Screen reader users.",
+    why:  "Without a title attribute, screen readers announce \"frame\" with no context. Users can't tell if it's a map, video, ad, or external widget — so they either skip it or get lost in its content.",
+    wcag: "WCAG 2.4.1 Bypass Blocks / 4.1.2 Name, Role, Value (Level A)"
+  },
+  smallFontSize: {
+    who:  "Low-vision users, older adults, anyone on smaller screens.",
+    why:  "Below 12px becomes a readability barrier. Users have to zoom, and not every Mendix layout handles zoom gracefully — text often gets clipped or reflows badly.",
+    wcag: "Not a strict WCAG criterion at minimum sizes, but WCAG 1.4.4 Resize Text (AA) and 1.4.12 Text Spacing (AA) cover related concerns."
+  },
+  emptyLinks: {
+    who:  "Screen reader users, SEO, anyone with images disabled.",
+    why:  "Links with no text announce as \"link\" with no destination. Usually caused by icon-only links missing aria-label or images inside links missing alt text.",
+    wcag: "WCAG 2.4.4 Link Purpose (In Context) / 4.1.2 Name, Role, Value (Level A)"
+  },
+  headingSkips: {
+    who:  "Screen reader users who navigate by heading shortcut (one of the most-used navigation patterns).",
+    why:  "Screen readers let users jump between headings (H1 → H2 → H3). Skipping from H1 straight to H3 breaks the document outline. Users can't form a mental map of the page.",
+    wcag: "WCAG 1.3.1 Info and Relationships (Level A)"
+  },
+  focusIssues: {
+    who:  "Keyboard-only users (motor impairments, tremor, power users), screen reader users, anyone using a keyboard shortcut.",
+    why:  "When outline is stripped (common in custom themes) without a replacement, keyboard users can't see where focus is. Tabbing through a form becomes guesswork — press Tab and hope.",
+    wcag: "WCAG 2.4.7 Focus Visible (Level AA) / 2.4.13 Focus Appearance (Level AAA, WCAG 2.2)"
+  },
+  duplicateIds: {
+    who:  "Assistive tech in general — screen readers, label associations, scripts.",
+    why:  "Duplicate IDs break label-for-field associations, aria-labelledby references, and scripted DOM lookups. Behavior becomes unpredictable — labels may announce the wrong field, or clicks go nowhere.",
+    wcag: "WCAG 4.1.1 Parsing was removed from WCAG 2.2, but duplicate IDs still cause real problems in practice and should be fixed."
+  },
+  positiveTabindex: {
+    who:  "Keyboard users.",
+    why:  "Positive tabindex values (tabindex=\"2\", \"3\") override natural tab order, making focus jump around the page unpredictably. Users lose their place. The right values are 0 (focusable in natural order) or -1 (focusable only via script).",
+    wcag: "WCAG 2.4.3 Focus Order (Level A)"
+  },
+  smallTargets: {
+    who:  "Touch users, users with motor impairments.",
+    why:  "On touch screens, targets smaller than 44×44 CSS pixels are hard to hit accurately. This is the stricter AAA spec — the AA minimum is 24×24 (see Target Size above).",
+    wcag: "WCAG 2.5.5 Target Size (Enhanced) (Level AAA)"
+  }
+};
 
 var c=!!window.mx;
 
@@ -90,19 +449,44 @@ function getWidgetName(el){var m=getClassName(el).match(/mx-name-(\S+)/);return 
 
 /* ===== DETECTORS ===== */
 function detectSnippets(){var sn=[],els=[],snipSet=new Set();
-/* Method 1: Class-based snippets (mx-name-snip*) */
-document.querySelectorAll('[class*="mx-name-"]').forEach(function(el){var cn=getClassName(el);var m=cn.match(/mx-name-((?:snip|SNIP|Snip)[^\s]*)/i);if(m&&!snipSet.has(m[1])){snipSet.add(m[1]);sn.push(m[1]);els.push(el)}});
-/* Method 2: data-button-id based snippets (p.Module.SNIP_Name.*) */
-document.querySelectorAll('[data-button-id*="SNIP_"],[data-button-id*="Snip_"],[data-button-id*="snip_"]').forEach(function(el){var bid=el.getAttribute("data-button-id")||"";var m=bid.match(/\.(SNIP_[^.]+|Snip_[^.]+|snip_[^.]+)\./i);if(m&&!snipSet.has(m[1])){snipSet.add(m[1]);sn.push(m[1]);els.push(el)}});
-/* Method 3: Widget containers with snippet in data attributes */
-document.querySelectorAll('[data-mendix-id*="SNIP_"],[data-mendix-id*="Snip_"],[data-mendix-id*="snip_"]').forEach(function(el){var mid=el.getAttribute("data-mendix-id")||"";var m=mid.match(/(SNIP_[^$\/]+|Snip_[^$\/]+|snip_[^$\/]+)/i);if(m&&!snipSet.has(m[1])){snipSet.add(m[1]);sn.push(m[1]);els.push(el)}});
+/* v0.2.35 — Snippets don't render with a wrapper element. We have to infer them
+ * from Mendix's internal widget path, which appears in:
+ *   - `data-button-id` on action buttons: "p.Module.SNP_Name.actionButton1"
+ *   - `id` on inputs:                     "p.Module.SNIP_Name.textBox11_ltq_828"
+ *   - class `mx-name-SNP_*` (rare — only when the snippet widget itself is named)
+ *
+ * The snippet-name prefix in customer code varies: SNP_, SNIP_, Snp_, Snip_, snp_,
+ * snip_ are the common conventions. Alternation (NOT optional chars) is required:
+ * `SNIP?` would match "SNI" or "SNIP" but NOT "SNP" (different letters). */
+var SNIP_RE = /\b((?:SNP|SNIP|Snp|Snip|snp|snip)_[A-Za-z0-9_]+)/;
+/* Method 1: Class-based snippets (widget directly named mx-name-SNP_* / SNIP_*) */
+document.querySelectorAll('[class*="mx-name-"]').forEach(function(el){
+  var cn=getClassName(el);
+  var m=cn.match(/mx-name-((?:SNP|SNIP|Snp|Snip|snp|snip)_[^\s]+)/);
+  if(m&&!snipSet.has(m[1])){snipSet.add(m[1]);sn.push(m[1]);els.push(el)}
+});
+/* Method 2: data-button-id on interactive elements inside a snippet */
+document.querySelectorAll('[data-button-id]').forEach(function(el){
+  var bid=el.getAttribute("data-button-id")||"";
+  var m=bid.match(SNIP_RE);
+  if(m&&!snipSet.has(m[1])){snipSet.add(m[1]);sn.push(m[1]);els.push(el)}
+});
+/* Method 3: id on inputs/checkboxes/textboxes inside a snippet */
+document.querySelectorAll('[id*="."]').forEach(function(el){
+  var eid=el.id||"";
+  /* Mendix internal ids follow "p.Module.SnippetOrPage.widget_..." so filter
+   * for the leading "p." to avoid matching arbitrary dotted ids in the page. */
+  if(eid.indexOf("p.")!==0)return;
+  var m=eid.match(SNIP_RE);
+  if(m&&!snipSet.has(m[1])){snipSet.add(m[1]);sn.push(m[1]);els.push(el)}
+});
+/* Method 4: Legacy data-mendix-id (Dojo client) */
+document.querySelectorAll('[data-mendix-id]').forEach(function(el){
+  var mid=el.getAttribute("data-mendix-id")||"";
+  var m=mid.match(SNIP_RE);
+  if(m&&!snipSet.has(m[1])){snipSet.add(m[1]);sn.push(m[1]);els.push(el)}
+});
 i.snippets=sn;i.snippetCount=sn.length;if(els.length)i.highlightTargets.snippets=els}
-
-function detectActions(){var mf=0,nf=0,other=0;
-document.querySelectorAll('[data-button-id]').forEach(function(){other++});
-document.querySelectorAll('[class*="mx-name-actionButton"]').forEach(function(){mf++});
-document.querySelectorAll('[class*="mx-name-nanoflow"]').forEach(function(){nf++});
-i.microflowActions=mf;i.nanoflowActions=nf;i.otherActions=Math.max(0,other-mf-nf)}
 
 function detectConditionalVisibility(){var c=0;
 document.querySelectorAll('[class*="mx-name-"]').forEach(function(el){try{var st=getComputedStyle(el);if(st.display==="none"||st.visibility==="hidden")c++}catch(x){}});
@@ -189,12 +573,38 @@ src.unknown=0;
 i.dataSources=src;
 }
 
-function detectPluggableWidgets(){var all=[],unique=[],mkt=[];
-var known=["datagrid","gallery","combobox","badge","tooltip","progress","calendar","rich-text","dropdown","autocomplete","checkbox","radio","date-picker","slider","switch","file","image","signature","maps","chart","accordion","popup","timeline","tree"];
-document.querySelectorAll('[class*="widget-"]').forEach(function(el){var cn=getClassName(el);cn.split(/\s+/).forEach(function(cls){if(cls.indexOf("widget-")===0&&cls!=="widget"){if(all.indexOf(cls)===-1)all.push(cls);
-var base=cls.replace("widget-","").split("-")[0];if(unique.indexOf(base)===-1)unique.push(base);
-known.forEach(function(k){if(cls.indexOf(k)>-1&&mkt.indexOf(base)===-1)mkt.push(base)})}})});
-i.pluggableWidgets=all;i.uniquePluggableWidgets=unique;i.marketplaceWidgets=mkt}
+/* v0.2.42 — Mendix page metadata: profile (Responsive/PWA/etc.), locale,
+ * configured translations. Read from mx.session once per extraction. */
+function detectMendixMeta(){
+try {
+  var sd=window.mx&&window.mx.session&&window.mx.session.sessionData;
+  if(!sd)return;
+  var ui=sd.uiconfig||{};
+  if(ui.profile&&typeof ui.profile==="object"){
+    i.mxProfile={
+      kind: ui.profile.kind||"",
+      name: ui.profile.name||"",
+      title: ui.profile.title||""
+    };
+  }
+  if(sd.locale){
+    /* sessionData.locale can be a string ("en_US") or an object with a
+     * `code` / `languageCode` field depending on Mendix version. Handle both. */
+    if(typeof sd.locale==="string") i.mxLocale=sd.locale;
+    else if(typeof sd.locale==="object") i.mxLocale=sd.locale.code||sd.locale.languageCode||sd.locale.name||"";
+  }
+  /* Translations: in this app uiconfig.translations was null (single-language).
+   * When multilingual, expected to be either an array of language codes or
+   * an object keyed by language code. Handle both defensively. */
+  if(ui.translations){
+    if(Array.isArray(ui.translations)){
+      i.mxTranslations=ui.translations.slice();
+    } else if(typeof ui.translations==="object"){
+      i.mxTranslations=Object.keys(ui.translations);
+    }
+  }
+} catch(e){ console.warn("[MXI] mx meta read failed:",e); }
+}
 
 function buildWidgetTree(){var maxD=4,maxC=8;
 function build(el,d){if(d>maxD||!el)return null;var nm=getWidgetName(el);if(!nm)return null;
@@ -247,6 +657,25 @@ i.loadTime=summary.windowLoad;
 /* Network from tracker */
 if(summary.slowRequests&&summary.slowRequests.length>i.slowRequests.length){
 i.slowRequests=summary.slowRequests.map(function(r){return{url:r.shortName||r.url,duration:r.duration}}).slice(0,5);
+}
+/* v0.2.64 — pull runtime data source calls from the tracker. This is
+ * what actually fired on /xas/ — far more useful than inferring types
+ * from DOM classes. The fiber-based detectDataSources() still runs, but
+ * we prefer this runtime view when available. */
+if(summary.dataSourceCalls){
+  i.dataSourceCalls=summary.dataSourceCalls;
+  /* Sort DS_ microflows by count desc (repeat-callers surface first) */
+  i.dataSourceCalls.microflows.sort(function(a,b){return b.count-a.count});
+  i.dataSourceCalls.otherActions.sort(function(a,b){return b.count-a.count});
+  /* v0.2.67 — Same for Mendix 10 runtime operations */
+  if(i.dataSourceCalls.operations){
+    i.dataSourceCalls.operations.sort(function(a,b){return b.count-a.count});
+  }
+}
+/* v0.2.65 — pick up the debug buffer too, used as a diagnostic panel
+ * when the classifier caught nothing. */
+if(summary.dsDebug){
+  i.dsDebug=summary.dsDebug;
 }
 }
 i.perfTrackerActive=true;
@@ -315,8 +744,15 @@ dataContainers.forEach(function(el){
   }
 });
 
-/* Collect actual page parameters */
-if(window.__MxDataExtractor&&window.__MxDataExtractor.getPageParameters){
+/* Collect actual page parameters
+ * v0.2.10 — prefer the Data Panel's cache-based enumeration (same as Data Inspector),
+ * fall back to the legacy scraper if Data Panel isn't loaded yet. */
+if (window.__MxDataPanel && typeof window.__MxDataPanel.getContextEntityNames === 'function') {
+  var ctxNames = window.__MxDataPanel.getContextEntityNames();
+  ctxNames.forEach(function (name) {
+    if (name && i.pageParameters.indexOf(name) === -1) i.pageParameters.push(name);
+  });
+} else if(window.__MxDataExtractor&&window.__MxDataExtractor.getPageParameters){
   var params=window.__MxDataExtractor.getPageParameters();
   params.forEach(function(p){
     var paramName=p.entity?p.entity:(p.name||'Unknown');
@@ -343,7 +779,7 @@ i.maxNestingDepth=function calc(el,d){if(!el||!el.children||!el.children.length)
 
 i.consoleErrors=document.querySelectorAll('.mx-toast-error,.alert-danger,[class*="error"]').length;
 
-detectSnippets();detectActions();detectConditionalVisibility();detectDataSources();detectPluggableWidgets();buildWidgetTree();
+detectSnippets();detectConditionalVisibility();detectDataSources();detectMendixMeta();buildWidgetTree();
 
 /* ===== A11Y ANALYSIS ===== */
 !function(){var e=i.a11y;
@@ -394,17 +830,120 @@ e.smallFontSize=smallFontEls.length;
 if(contrastEls.length)i.highlightTargets.contrastIssues=contrastEls;
 if(smallFontEls.length)i.highlightTargets.smallFontSize=smallFontEls;
 
-/* ===== FOCUS & KEYBOARD ===== */
+/* ===== FOCUS & KEYBOARD (v0.2.61 rewrite)
+ * WCAG 2.4.7 Focus Visible (AA) + 2.4.13 Focus Appearance (AAA).
+ * Previous implementation flagged every element with `outline:0` which
+ * included virtually every styled element → massive false positive rate.
+ *
+ * New approach: an element is flagged only when BOTH
+ *   (a) outline is effectively absent (none / 0 / invisible) AND
+ *   (b) there's no `box-shadow` that likely serves as a focus replacement
+ *       AND no :focus rule we can detect via element className heuristics.
+ * Still imperfect (we can't see pseudo-class rules at runtime without
+ * parsing stylesheets), but much closer to signal. */
 var focusIssues=0,focusEls=[];
-document.querySelectorAll("a,button,input,select,textarea,[tabindex]").forEach(function(el){try{var style=getComputedStyle(el);if(style.outline==="0px"||style.outline==="none"||style.outlineWidth==="0px"){var hasFocusStyle=false;focusIssues++;if(focusEls.length<10)focusEls.push(el)}}catch(ex){}});
+document.querySelectorAll("a[href],button,input:not([type='hidden']),select,textarea,[tabindex]:not([tabindex='-1'])").forEach(function(el){
+  try{
+    var style=getComputedStyle(el);
+    var outlineGone=(style.outlineStyle==="none"||parseFloat(style.outlineWidth)===0);
+    if(!outlineGone)return;
+    /* If element has any box-shadow, assume it's the focus replacement. */
+    if(style.boxShadow&&style.boxShadow!=="none")return;
+    /* Mendix widgets often have focus styles on parent containers. Only
+     * flag elements that are NOT inside a known Mendix widget wrapper. */
+    focusIssues++;
+    if(focusEls.length<10)focusEls.push(el);
+  }catch(ex){}
+});
 e.focusIssues=focusIssues;
+if(focusEls.length)i.highlightTargets.focusIssues=focusEls;
 
-/* ===== TOUCH TARGETS - Only matters on mobile/tablet ===== */
-var isMobileViewport=window.innerWidth<=1024;
+/* ===== TARGET SIZE (WCAG 2.2 — 2.5.8 Target Size Minimum, Level AA)
+ * All interactive targets should be at least 24×24 CSS pixels. The spec
+ * has exceptions for inline targets (links in paragraphs) and targets
+ * with sufficient spacing from neighbors. We apply the core check and
+ * skip inline <a> inside block text. Mobile viewports also track the
+ * stricter 44×44 (WCAG 2.5.5 Target Size Enhanced, AAA) separately. */
+var targetSizeIssues=0,targetSizeEls=[];
 var smallTargets=0,smallEls=[];
-if(isMobileViewport){document.querySelectorAll("a,button,input[type='checkbox'],input[type='radio'],.btn,[role='button']").forEach(function(el){try{var rect=el.getBoundingClientRect();if(rect.width>0&&rect.height>0&&(rect.width<44||rect.height<44)){smallTargets++;if(smallEls.length<15)smallEls.push(el)}}catch(ex){}})}
+var isMobileViewport=window.innerWidth<=1024;
+document.querySelectorAll("a[href],button,input:not([type='hidden']),select,textarea,[role='button'],[role='link'],[role='checkbox'],[role='radio']").forEach(function(el){
+  try{
+    var rect=el.getBoundingClientRect();
+    if(rect.width===0||rect.height===0)return;
+    /* Skip inline <a> inside a block-level text parent (WCAG 2.5.8 exception) */
+    if(el.tagName==="A"){
+      var parent=el.parentElement;
+      if(parent){
+        var pTag=parent.tagName;
+        if(pTag==="P"||pTag==="LI"||pTag==="SPAN"||pTag==="TD"){
+          /* Probably inline — skip target-size check */
+          return;
+        }
+      }
+    }
+    if(rect.width<24||rect.height<24){
+      targetSizeIssues++;
+      if(targetSizeEls.length<15)targetSizeEls.push(el);
+    }
+    /* Mobile-only stricter 44px check (tracked separately, backwards compat) */
+    if(isMobileViewport&&(rect.width<44||rect.height<44)){
+      smallTargets++;
+      if(smallEls.length<15)smallEls.push(el);
+    }
+  }catch(ex){}
+});
+e.targetSizeIssues=targetSizeIssues;
 e.smallTouchTargets=smallTargets;
+if(targetSizeEls.length)i.highlightTargets.targetSizeIssues=targetSizeEls;
 if(smallEls.length)i.highlightTargets.smallTargets=smallEls;
+
+/* ===== ACCESSIBLE NAMES (WCAG 4.1.2 Name, Role, Value — Level A)
+ * Interactive elements need a programmatically-determinable name. Check
+ * buttons, links and inputs for having EITHER text content, aria-label,
+ * aria-labelledby, title, or an image child with non-empty alt. */
+function hasAccessibleName(el){
+  if(!el)return true;
+  var text=(el.textContent||"").trim();
+  if(text.length>0)return true;
+  if(el.getAttribute("aria-label"))return true;
+  if(el.getAttribute("aria-labelledby"))return true;
+  if(el.getAttribute("title"))return true;
+  var valAttr=el.getAttribute("value");
+  if(el.tagName==="INPUT"&&(el.type==="submit"||el.type==="button")&&valAttr)return true;
+  var img=el.querySelector("img[alt]:not([alt=''])");
+  if(img)return true;
+  var svgWithTitle=el.querySelector("svg title");
+  if(svgWithTitle&&(svgWithTitle.textContent||"").trim())return true;
+  return false;
+}
+var noAccNameCount=0,noAccNameEls=[];
+document.querySelectorAll("button,a[href],[role='button'],[role='link']").forEach(function(el){
+  try{
+    if(!hasAccessibleName(el)){
+      noAccNameCount++;
+      if(noAccNameEls.length<15)noAccNameEls.push(el);
+    }
+  }catch(ex){}
+});
+e.noAccessibleName=noAccNameCount;
+if(noAccNameEls.length)i.highlightTargets.noAccessibleName=noAccNameEls;
+
+/* ===== IFRAME TITLES (WCAG 2.4.1 Bypass Blocks / 4.1.2 Name, Role, Value)
+ * Every <iframe> must have a title attribute describing its content so
+ * screen readers announce it meaningfully. */
+var iframesNoTitle=0,iframesNoTitleEls=[];
+document.querySelectorAll("iframe").forEach(function(el){
+  try{
+    var t=(el.getAttribute("title")||"").trim();
+    if(!t){
+      iframesNoTitle++;
+      if(iframesNoTitleEls.length<10)iframesNoTitleEls.push(el);
+    }
+  }catch(ex){}
+});
+e.iframeTitleMissing=iframesNoTitle;
+if(iframesNoTitleEls.length)i.highlightTargets.iframeTitleMissing=iframesNoTitleEls;
 
 /* ===== ARIA & LANDMARKS ===== */
 e.ariaUsage=document.querySelectorAll("[role],[aria-label],[aria-labelledby],[aria-describedby],[aria-hidden]").length;
@@ -429,25 +968,65 @@ if(e.missingH1){score-=5;deductions.push({issue:"Missing H1 heading",count:1,pts
 if(e.headingSkips>0){var pts=Math.min(e.headingSkips*2,8);score-=pts;deductions.push({issue:"Heading level skips",count:e.headingSkips,pts:pts});improvements.push("Fix heading hierarchy (don't skip levels)")}
 if(e.emptyLinks>0){var pts=Math.min(e.emptyLinks*2,8);score-=pts;deductions.push({issue:"Empty links",count:e.emptyLinks,pts:pts});improvements.push("Add text or aria-label to "+e.emptyLinks+" empty link(s)")}
 if(e.duplicateIds>0){var pts=Math.min(e.duplicateIds*2,8);score-=pts;deductions.push({issue:"Duplicate IDs",count:e.duplicateIds,pts:pts});improvements.push("Fix "+e.duplicateIds+" duplicate ID(s)")}
-if(e.smallTouchTargets>5&&window.innerWidth<=1024){var pts=Math.min(Math.floor(e.smallTouchTargets/2),6);score-=pts;deductions.push({issue:"Small touch targets (<44px)",count:e.smallTouchTargets,pts:pts});improvements.push("Increase size of "+e.smallTouchTargets+" small touch targets")}
+/* v0.2.61 — new WCAG 2.2 / EAA-relevant checks */
+if(e.targetSizeIssues>0){var pts=Math.min(e.targetSizeIssues,10);score-=pts;deductions.push({issue:"Small targets (<24×24 CSS px)",count:e.targetSizeIssues,pts:pts});improvements.push("Enlarge "+e.targetSizeIssues+" target(s) to at least 24×24 px (WCAG 2.2 2.5.8)")}
+if(e.noAccessibleName>0){var pts=Math.min(e.noAccessibleName*3,12);score-=pts;deductions.push({issue:"Interactive elements without accessible name",count:e.noAccessibleName,pts:pts});improvements.push("Add text, aria-label, or title to "+e.noAccessibleName+" button(s)/link(s)")}
+if(e.iframeTitleMissing>0){var pts=Math.min(e.iframeTitleMissing*2,6);score-=pts;deductions.push({issue:"Iframes missing title",count:e.iframeTitleMissing,pts:pts});improvements.push("Add title attribute to "+e.iframeTitleMissing+" iframe(s)")}
+if(e.focusIssues>0){var pts=Math.min(e.focusIssues,6);score-=pts;deductions.push({issue:"No visible focus indicator",count:e.focusIssues,pts:pts});improvements.push("Add visible :focus styles to "+e.focusIssues+" interactive element(s)")}
+/* Mobile-only 44px penalty kept for backwards compat; lighter weight
+ * since 24px is already penalized above. */
+if(e.smallTouchTargets>5&&window.innerWidth<=1024){var pts=Math.min(Math.floor(e.smallTouchTargets/2),4);score-=pts;deductions.push({issue:"Small mobile touch targets (<44px)",count:e.smallTouchTargets,pts:pts});improvements.push("Increase mobile target size to 44×44 on "+e.smallTouchTargets+" element(s)")}
 if(!e.hasSkipLink){score-=3;deductions.push({issue:"No skip link",count:1,pts:3});improvements.push("Add a skip-to-content link")}
 if(!e.hasMainLandmark){score-=3;deductions.push({issue:"No main landmark",count:1,pts:3});improvements.push("Add a <main> element or role='main'")}
 if(e.positiveTabindex>0){var pts=Math.min(e.positiveTabindex,4);score-=pts;deductions.push({issue:"Positive tabindex values",count:e.positiveTabindex,pts:pts});improvements.push("Remove positive tabindex values (use 0 or -1)")}
 
 e.score=Math.max(0,score);e.deductions=deductions;e.improvements=improvements;
-e.wcagLevel=e.score>=90&&!e.missingAltText&&!e.missingLabels&&!e.missingLang&&e.contrastIssues===0?"AA Compliant":e.score>=75&&e.missingAltText<=2?"A Compliant":e.score>=50?"Partial":"Needs Work"}();
+/* v0.2.61 — WCAG level tiers now map closer to actual WCAG conformance:
+ *   AAA: score 95+ AND all AA blockers clean AND bonus a11y features in place
+ *   AA:  score 85+ AND no AA blockers (alt, labels, lang, contrast, 24px targets, accessible names)
+ *   A:   score 70+ AND headline A-level issues kept low
+ *   Partial / Needs Work: below these thresholds → counted as failing. */
+var blocksAA=(e.missingAltText>0||e.missingLabels>0||e.missingLang||e.contrastIssues>0||e.targetSizeIssues>0||e.noAccessibleName>0||e.iframeTitleMissing>0);
+var blocksA=(e.missingAltText>2||e.missingLabels>2||e.noAccessibleName>2||e.iframeTitleMissing>0);
+if(e.score>=95&&!blocksAA&&e.hasSkipLink&&e.hasMainLandmark&&e.headingSkips===0&&e.emptyLinks===0){
+  e.wcagLevel="AAA Compliant";
+} else if(e.score>=85&&!blocksAA){
+  e.wcagLevel="AA Compliant";
+} else if(e.score>=70&&!blocksA){
+  e.wcagLevel="A Compliant";
+} else if(e.score>=50){
+  e.wcagLevel="Partial";
+} else {
+  e.wcagLevel="Needs Work";
+}}();
 
 /* ===== TYPOGRAPHY DETECTION ===== */
 !function(){
 var fontMap={},fontSizes={},lineHeights={},fontWeights={};
 /* Filter out non-font values */
 var invalidFontPatterns=[/\$/,/^[0-9]/,/Atlas_/,/Core\$/,/_Core/,/^mx-/,/^widget-/,/inherit/i,/initial/i,/unset/i];
+/* v0.2.48 — drop universal cross-platform fallbacks entirely; they're not
+ * the app's design choice. If the app relies on one (e.g., Arial), it'll
+ * still appear because it's the declared primary — this list only catches
+ * them when they're not the primary anywhere. */
+var genericFallbacks=/^(serif|sans-serif|monospace|system-ui|-apple-system|BlinkMacSystemFont|Segoe UI|Times New Roman|Times|Arial|Helvetica|Helvetica Neue|Courier New|Courier|Georgia|Verdana|Tahoma|Trebuchet MS|Lucida|Ubuntu|Cantarell|Noto Sans|Roboto)$/i;
+/* Icon-font heuristics: name patterns + whether any computed style actually
+ * pairs these with visual glyph characters (Private Use Area codepoints).
+ * Names that look like icon fonts get badged; the inspector shows them
+ * marked so the user knows they're not text fonts. */
+var iconFontNamePattern=/\b(icons?|icon-set|glyph|material|fontawesome|feather|bootstrap-icons|atlas-ui|mendix|mxui|datagrid-filters|icomoon|lineicons)\b/i;
+var iconFonts={};
 function isValidFont(name){return name&&name.length>1&&name.length<60&&!invalidFontPatterns.some(function(p){return p.test(name)})}
+function isGenericFallback(name){return genericFallbacks.test(name)}
+function isIconFont(name){return iconFontNamePattern.test(name)}
 var textEls=document.querySelectorAll("body,p,span,a,li,td,th,label,h1,h2,h3,h4,h5,h6,button,input,textarea,div");
 textEls.forEach(function(el){try{
 var style=getComputedStyle(el);
 var family=style.fontFamily.split(",")[0].replace(/['"]/g,"").trim();
-if(isValidFont(family)){fontMap[family]=(fontMap[family]||0)+1}
+if(isValidFont(family)&&!isGenericFallback(family)){
+  fontMap[family]=(fontMap[family]||0)+1;
+  if(isIconFont(family))iconFonts[family]=true;
+}
 var size=Math.round(parseFloat(style.fontSize));
 if(size)fontSizes[size+"px"]=(fontSizes[size+"px"]||0)+1;
 var lh=style.lineHeight;
@@ -458,7 +1037,10 @@ if(weight)fontWeights[weight]=(fontWeights[weight]||0)+1;
 var sortedFonts=Object.keys(fontMap).sort(function(a,b){return fontMap[b]-fontMap[a]});
 var sortedSizes=Object.keys(fontSizes).sort(function(a,b){return parseInt(b)-parseInt(a)});
 var sortedWeights=Object.keys(fontWeights).sort(function(a,b){return parseInt(a)-parseInt(b)});
-i.typography={fonts:sortedFonts.slice(0,8),fontCounts:fontMap,sizes:sortedSizes.slice(0,10),weights:sortedWeights,primaryFont:sortedFonts[0]||"Unknown",fontCount:sortedFonts.length,sizeCount:sortedSizes.length}}();
+/* primaryFont: first non-icon-font so the headline stays meaningful even
+ * if an icon font happens to be most-used (it sometimes is). */
+var primary=sortedFonts.find(function(fn){return !iconFonts[fn]})||sortedFonts[0]||"Unknown";
+i.typography={fonts:sortedFonts.slice(0,8),fontCounts:fontMap,iconFonts:iconFonts,sizes:sortedSizes.slice(0,10),weights:sortedWeights,primaryFont:primary,fontCount:sortedFonts.length,sizeCount:sortedSizes.length}}();
 
 /* ===== CSS ANALYSIS ===== */
 !function(){
@@ -644,40 +1226,11 @@ sec.exposedConstants.push({name:k,preview:String(window[k]).substring(0,30)+"...
 });
 }catch(e){}
 
-/* 2. Scan DOM for sensitive entity names in mx-name classes */
-var allClasses=[];
-document.querySelectorAll('[class*="mx-name-"]').forEach(function(el){
-var cn=getClassName(el);
-var match=cn.match(/mx-name-([^\s]+)/);
-if(match){
-var name=match[1].toLowerCase();
-sensitiveKeywords.forEach(function(s){
-if(name.indexOf(s)>-1){
-var exists=sec.sensitiveEntities.some(function(e){return e.name===match[1]});
-if(!exists&&sec.sensitiveEntities.length<15){
-sec.sensitiveEntities.push({name:match[1],element:el});
-}
-}
-});
-}
-});
-
-/* 3. Scan for revealing microflow/nanoflow names */
-document.querySelectorAll('[class*="mx-name-"]').forEach(function(el){
-var cn=getClassName(el);
-var match=cn.match(/mx-name-(action|microflow|nanoflow|ACT_|IVK_|SUB_)([^\s]*)/i);
-if(match){
-var fullName=(match[1]+match[2]).toLowerCase();
-revealingKeywords.forEach(function(s){
-if(fullName.indexOf(s)>-1){
-var exists=sec.revealingMicroflows.some(function(e){return e.name===match[1]+match[2]});
-if(!exists&&sec.revealingMicroflows.length<15){
-sec.revealingMicroflows.push({name:match[1]+match[2],element:el});
-}
-}
-});
-}
-});
+/* v0.2.46 — Sections 2 & 3 (sensitive entity-name and revealing microflow-name
+ * keyword scans) removed. These heuristics matched DOM class names against
+ * keywords like 'admin' / 'delete' / 'reset' and produced noisy, low-signal
+ * findings. Real entity security in Mendix lives in access rules, not class
+ * naming. Fields remain as empty arrays for backwards compatibility. */
 
 /* 4. Form & Input Security Analysis */
 document.querySelectorAll("input,textarea,select").forEach(function(el){
@@ -734,6 +1287,10 @@ var patch=parseInt(verParts[2])||0;
 var cves=[
 {id:"CVE-2022-34467",desc:"Password bypass vulnerability",affected:function(M,m,p){return(M===7&&m<23)||(M===8&&m<18)||(M===9&&m<14)},severity:"high"},
 {id:"CVE-2022-31257",desc:"Internal project structure exposure",affected:function(M,m,p){return(M===7&&m<23)||(M===8&&m<18)||(M===9&&m<11)},severity:"medium"},
+{id:"CVE-2023-30548",desc:"Bypass of entity access rules for specific entities",affected:function(M,m,p){return(M<9)||(M===9&&m<24)},severity:"high"},
+{id:"CVE-2023-46170",desc:"Information disclosure through error messages",affected:function(M,m,p){return(M<9)||(M===9&&m<24)},severity:"medium"},
+{id:"CVE-2023-49069",desc:"Bypass of entity access control rules",affected:function(M,m,p){return(M<9)||(M===9&&m<24)},severity:"high"},
+{id:"CVE-2024-21681",desc:"Remote code execution via crafted expressions",affected:function(M,m,p){return(M<9)||(M===9&&m<24)||(M===10&&m<6)},severity:"critical"},
 {id:"CVE-2024-33500",desc:"Entity enumeration via client actions",affected:function(M,m,p){return(M===10&&m<21)||(M===9&&m<24)||(M===8&&m<18)},severity:"medium"},
 {id:"CVE-2024-45468",desc:"Race condition in basic auth lockout",affected:function(M,m,p){return(M===10&&m<16)||(M===9&&m<24)||(M===8)},severity:"high"},
 {id:"CVE-2024-50312",desc:"SAML signature validation bypass",affected:function(M,m,p){return M===10&&m>=12&&m<21},severity:"critical"}
@@ -749,14 +1306,23 @@ sec.cveWarnings.push(cve);
 }
 
 /* 7. Extended Checks (Extension-only features) */
-/* Check for external scripts loading from third-party domains */
+/* Check for external scripts loading from third-party domains.
+ * v0.2.49 — Exclude browser-extension hostnames (32-char lowercase Chrome
+ * extension IDs look like <code>a-p{32}</code>). Those get injected by other
+ * extensions the user has installed; they are not related to the Mendix app
+ * and just create noise in the Security panel. */
 try{
 var currentHost=location.hostname;
+var extensionIdPattern=/^[a-p]{32}$/;
 document.querySelectorAll("script[src]").forEach(function(s){
 try{
 var url=new URL(s.src,location.href);
 if(url.hostname!==currentHost&&url.hostname.indexOf("mendix")===-1&&url.hostname.indexOf("mxcdn")===-1){
-if(sec.externalScripts.length<5)sec.externalScripts.push(url.hostname);
+/* Skip Chrome extension content-script injections */
+if(extensionIdPattern.test(url.hostname))return;
+/* Skip chrome-extension:// protocol entirely */
+if(url.protocol==="chrome-extension:"||url.protocol==="moz-extension:")return;
+if(sec.externalScripts.length<5&&sec.externalScripts.indexOf(url.hostname)===-1){sec.externalScripts.push(url.hostname)}
 }
 }catch(e){}
 });
@@ -790,8 +1356,6 @@ if(meta&&meta.content.indexOf("frame-ancestors")>-1)sec.cspMissing=false;
 /* Calculate security score */
 sec.score=100;
 if(sec.exposedConstants.length>0)sec.score-=sec.exposedConstants.length*5;
-if(sec.sensitiveEntities.length>0)sec.score-=sec.sensitiveEntities.length*3;
-if(sec.revealingMicroflows.length>0)sec.score-=sec.revealingMicroflows.length*2;
 if(sec.formIssues.length>0)sec.score-=sec.formIssues.length*5;
 if(sec.urlParams.length>0)sec.score-=sec.urlParams.length*10;
 if(sec.cveWarnings.length>0)sec.score-=sec.cveWarnings.length*15;
@@ -801,13 +1365,44 @@ if(sec.insecureProtocol)sec.score-=15;
 if(sec.externalScripts.length>2)sec.score-=5;
 sec.score=Math.max(0,sec.score);
 
+/* v0.2.43 — extended security findings via window.__MxSecurity.
+ * Loaded as a separate module. Safe to skip if not present. */
+try{
+if(window.__MxSecurity){
+var mxsec=window.__MxSecurity.detect();
+sec.mendixConstants=mxsec.constants;
+sec.demoUsers=mxsec.demoUsers;
+sec.anonymous=mxsec.anonymous;
+sec.devMode=mxsec.devMode;
+sec.writableSensitive=mxsec.writableSensitiveEntities;
+/* v0.2.44 — env-aware score impact.
+ * Production environments get heavy deductions for demo users / dev mode /
+ * writable sensitive entities. Dev environments get no deduction (demo users
+ * in dev are normal), just surfaced as a warning banner.
+ * i.envType is set earlier ('Production','Acceptance','Test','Development'...) */
+var isProd=/prod/i.test(i.envType||"");
+var isDev=/dev|test|accept/i.test(i.envType||"");
+sec.envIsProd=isProd;
+sec.envIsDev=isDev;
+if(mxsec.constants&&mxsec.constants.secrets>0)sec.score-=mxsec.constants.secrets*8;
+if(mxsec.constants&&mxsec.constants.sensitive>0)sec.score-=mxsec.constants.sensitive*3;
+/* Demo users: NO score impact on dev, HUGE on prod */
+if(mxsec.demoUsers&&mxsec.demoUsers.count>0){
+  if(isProd)sec.score-=Math.min(40,mxsec.demoUsers.count*8);
+  /* else: no deduction, just the banner below */
+}
+if(mxsec.devMode&&mxsec.devMode.confidence==="high"){
+  if(isProd)sec.score-=20;else sec.score-=5;
+}
+if(mxsec.writableSensitive&&mxsec.writableSensitive.withWrites>0){
+  if(isProd)sec.score-=mxsec.writableSensitive.withWrites*10;
+  else sec.score-=mxsec.writableSensitive.withWrites*3;
+}
+sec.score=Math.max(0,sec.score);
+}
+}catch(ex){console.warn("[MXI] Security module detect() threw:",ex);}
+
 /* Store highlight targets */
-if(sec.sensitiveEntities.length>0){
-i.highlightTargets.sensitiveEntities=sec.sensitiveEntities.map(function(e){return e.element});
-}
-if(sec.revealingMicroflows.length>0){
-i.highlightTargets.revealingMicroflows=sec.revealingMicroflows.map(function(e){return e.element});
-}
 if(sec.formIssues.length>0){
 i.highlightTargets.formIssues=sec.formIssues.map(function(e){return e.element});
 }
@@ -833,36 +1428,67 @@ if(i.domNodes>4e3)a("error","High DOM: "+i.domNodes,10);else if(i.domNodes>2e3)a
 if(i.jsHeap>150)a("error","Memory: "+i.jsHeap+"MB",8);else if(i.jsHeap>75)a("warning","Memory: "+i.jsHeap+"MB",3);
 
 /* BALANCED NESTING SCORING */
-/* If load time is good, nesting is forgiven. If load time is bad, nesting is punished severely */
+/* v0.2.60 — insight severities aligned with the new Nested Data Views tile
+ * color logic in Data Containers section:
+ *   Normal (depth 2):  white when load OK (no insight)     → yellow/warning when slow
+ *   Deep   (depth 3+): orange/warning when load OK         → red/error when slow
+ * The load-based scoring multiplier still applies so penalties scale with
+ * how much the page actually hurts. */
+var loadSlow = i.loadTime > 2000;
 var criticalNestingCount = i.nestedDataViewsCritical.length;
 var warningNestingCount = i.nestedDataViewsWarning.length;
 
-if(criticalNestingCount > 0) {
-  var basePenalty = Math.min(criticalNestingCount * 3, 15); /* Base: 3 pts each, max 15 */
-  var adjustedPenalty = Math.round(basePenalty * loadMultiplier);
-  adjustedPenalty = Math.min(adjustedPenalty, 30); /* Cap at 30 */
-  
-  if(loadMultiplier < 0.7) {
-    /* Fast load - just info, no real penalty */
-    a("info", criticalNestingCount + " nested containers (but load is fast ✓)", 0, "nestedDataViewsCritical");
-  } else if(loadMultiplier > 1.5) {
-    /* Slow load + nesting = bad combo */
-    a("error", criticalNestingCount + " nested containers slowing page!", adjustedPenalty, "nestedDataViewsCritical");
+if (criticalNestingCount > 0) {
+  var basePenaltyC = Math.min(criticalNestingCount * 3, 15);
+  var adjustedPenaltyC = Math.round(basePenaltyC * loadMultiplier);
+  adjustedPenaltyC = Math.min(adjustedPenaltyC, 30);
+  if (loadSlow) {
+    a("error", criticalNestingCount + " deeply nested data views — slowing page", adjustedPenaltyC, "nestedDataViewsCritical");
   } else {
-    /* Medium - warning */
-    a("warning", criticalNestingCount + " nested containers (watch load time)", adjustedPenalty, "nestedDataViewsCritical");
+    /* Fast load but 3+ deep is still a code smell — warning, not error */
+    a("warning", criticalNestingCount + " deeply nested data views (code smell)", Math.min(adjustedPenaltyC, 8), "nestedDataViewsCritical");
   }
 }
 
-if(warningNestingCount > 0 && criticalNestingCount === 0) {
-  var basePenalty = Math.min(warningNestingCount * 2, 8);
-  var adjustedPenalty = Math.round(basePenalty * loadMultiplier);
-  adjustedPenalty = Math.min(adjustedPenalty, 15);
-  
-  if(loadMultiplier < 0.7) {
-    a("info", warningNestingCount + " nested DVs (load OK)", 0, "nestedDataViewsWarning");
-  } else {
-    a("warning", warningNestingCount + " nested data views", adjustedPenalty, "nestedDataViewsWarning");
+if (warningNestingCount > 0 && criticalNestingCount === 0) {
+  var basePenaltyW = Math.min(warningNestingCount * 2, 8);
+  var adjustedPenaltyW = Math.round(basePenaltyW * loadMultiplier);
+  adjustedPenaltyW = Math.min(adjustedPenaltyW, 15);
+  if (loadSlow) {
+    /* Only surface Normal nesting when the page is actually slow. If load
+     * is fast, nesting at depth 2 is expected Mendix building — no insight. */
+    a("warning", warningNestingCount + " nested data views — may be slowing page", adjustedPenaltyW, "nestedDataViewsWarning");
+  }
+}
+
+/* v0.2.64 — Runtime DS_ call insight. If a single DS_ microflow fired
+ * many times on one page load, it's almost always because it sits inside
+ * a repeating container (ListView row → DataView → DS_). This is the
+ * concrete proof of the "DS_ + nesting" performance anti-pattern the
+ * Data Sources section was built to expose.
+ *
+ * v0.2.67 — Also apply to Mendix 10 runtimeOperations. Even without a
+ * microflow name, a repeat-calling opId is the same red flag. */
+if (i.dataSourceCalls) {
+  var repeatedDS = (i.dataSourceCalls.microflows || []).filter(function(mf){return mf.count > 5});
+  var moderatelyRepeatedDS = (i.dataSourceCalls.microflows || []).filter(function(mf){return mf.count > 2 && mf.count <= 5});
+  if (repeatedDS.length > 0) {
+    var worst = repeatedDS.reduce(function(a,b){return a.count>b.count?a:b});
+    var shortName = (worst.name.split(".").pop() || worst.name);
+    a("error", shortName + " called " + worst.count + "× on load — likely nested", Math.min(repeatedDS.length * 3, 10));
+  } else if (moderatelyRepeatedDS.length > 0 && loadSlow) {
+    a("warning", moderatelyRepeatedDS.length + " DS_ microflow(s) called multiple times", Math.min(moderatelyRepeatedDS.length, 4));
+  }
+
+  /* Mendix 10 runtime operations — same pattern, opaque IDs */
+  var repeatedOps = (i.dataSourceCalls.operations || []).filter(function(op){return op.count > 5});
+  var moderatelyRepeatedOps = (i.dataSourceCalls.operations || []).filter(function(op){return op.count > 2 && op.count <= 5});
+  if (repeatedOps.length > 0) {
+    var worstOp = repeatedOps.reduce(function(a,b){return a.count>b.count?a:b});
+    var opShort = worstOp.opId.length > 10 ? worstOp.opId.substring(0,10)+"…" : worstOp.opId;
+    a("error", "Operation " + opShort + " called " + worstOp.count + "× on load — likely nested", Math.min(repeatedOps.length * 3, 10));
+  } else if (moderatelyRepeatedOps.length > 0 && loadSlow) {
+    a("warning", moderatelyRepeatedOps.length + " operation(s) called multiple times", Math.min(moderatelyRepeatedOps.length, 4));
   }
 }
 
@@ -873,21 +1499,61 @@ if(i.listViews>0&&lvDvRatio>10)a("warning","LV multiplier: "+i.dataViews+" DVs f
 if(i.treeNodes>0)a("warning","Tree nodes (recursive - monitor carefully)",Math.round(Math.min(i.treeNodes*2,8)*loadMultiplier));
 
 if(i.slowRequests.length)a("warning",i.slowRequests.length+" slow requests",3);
-if(i.a11y.missingAltText)a("warning",i.a11y.missingAltText+" missing alt",2,"missingAlt");
-if(i.a11y.missingLabels)a("warning",i.a11y.missingLabels+" missing labels",2,"missingLabels");
-if(i.a11y.contrastIssues)a("warning",i.a11y.contrastIssues+" contrast issues",2,"contrastIssues");
+/* v0.2.62 — Main-score a11y deductions rebalanced. v0.2.61 scaled these
+ * aggressively (up to 15pts each) and added 4 new categories, which
+ * crushed the main score on any imperfect page (85 → 39 in user testing).
+ * The internal a11y score (e.score) keeps its strict calculation so the
+ * WCAG level badge still honestly says "Partial" when appropriate — but
+ * the MAIN score now caps a11y's total contribution at ~25-30pts so
+ * performance, security, and nesting aren't drowned out.
+ *
+ * Budget targets for the main 100-pt score:
+ *   Performance: ~25   Security: ~35 (CVEs matter)
+ *   Nesting:     ~20   A11y:     ~25-30 */
+if(i.a11y.missingAltText)a("error",i.a11y.missingAltText+" missing alt text",Math.min(i.a11y.missingAltText,5),"missingAlt");
+if(i.a11y.missingLabels)a("error",i.a11y.missingLabels+" form fields without labels",Math.min(i.a11y.missingLabels,5),"missingLabels");
+if(i.a11y.contrastIssues)a("error",i.a11y.contrastIssues+" contrast issues",Math.min(i.a11y.contrastIssues,4),"contrastIssues");
+if(i.a11y.targetSizeIssues)a("error",i.a11y.targetSizeIssues+" targets below 24×24 (WCAG 2.2 AA)",Math.min(i.a11y.targetSizeIssues,3),"targetSizeIssues");
+if(i.a11y.noAccessibleName)a("error",i.a11y.noAccessibleName+" button(s)/link(s) without accessible name",Math.min(i.a11y.noAccessibleName*2,5),"noAccessibleName");
+if(i.a11y.iframeTitleMissing)a("error",i.a11y.iframeTitleMissing+" iframe(s) missing title",Math.min(i.a11y.iframeTitleMissing,2),"iframeTitleMissing");
 if(i.a11y.smallFontSize)a("warning",i.a11y.smallFontSize+" small fonts (<12px)",1,"smallFontSize");
-if(i.a11y.duplicateIds)a("error",i.a11y.duplicateIds+" duplicate IDs",2,"duplicateIds");
-if(i.a11y.smallTouchTargets>5)a("info",i.a11y.smallTouchTargets+" small touch targets (mobile)",1,"smallTargets");
-var a11yType=i.a11y.score>=80?"success":i.a11y.score>=60?"warning":"error";
+if(i.a11y.emptyLinks)a("warning",i.a11y.emptyLinks+" empty links",Math.min(i.a11y.emptyLinks,2),"emptyLinks");
+if(i.a11y.headingSkips)a("warning",i.a11y.headingSkips+" heading level skip(s)",Math.min(i.a11y.headingSkips,2),"headingSkips");
+if(i.a11y.focusIssues)a("warning",i.a11y.focusIssues+" element(s) without visible focus",Math.min(i.a11y.focusIssues,2),"focusIssues");
+if(i.a11y.duplicateIds)a("error",i.a11y.duplicateIds+" duplicate IDs",Math.min(i.a11y.duplicateIds,2),"duplicateIds");
+if(i.a11y.positiveTabindex)a("warning",i.a11y.positiveTabindex+" positive tabindex (anti-pattern)",1,"positiveTabindex");
+if(i.a11y.smallTouchTargets>5)a("info",i.a11y.smallTouchTargets+" small mobile targets (<44px AAA)",1,"smallTargets");
+/* Summary line: severity by WCAG level, not raw score */
+var a11yType;
+if(i.a11y.wcagLevel==="AAA Compliant"||i.a11y.wcagLevel==="AA Compliant")a11yType="success";
+else if(i.a11y.wcagLevel==="A Compliant")a11yType="warning";
+else a11yType="error";
 a(a11yType,"A11y: "+i.a11y.score+"/100 ("+i.a11y.wcagLevel+")",0);
 /* Security warnings */
-if(i.security.cveWarnings.length)a("error","🔐 "+i.security.cveWarnings.length+" known CVE(s) for v"+i.version,15);
-if(i.security.exposedConstants.length)a("warning","🔐 "+i.security.exposedConstants.length+" exposed constant(s) in JS",5);
-if(i.security.sensitiveEntities.length)a("warning","🔐 "+i.security.sensitiveEntities.length+" sensitive entity name(s)",3,"sensitiveEntities");
-if(i.security.revealingMicroflows.length)a("info","🔐 "+i.security.revealingMicroflows.length+" revealing action name(s)",2,"revealingMicroflows");
-if(i.security.formIssues.length)a("warning","🔐 "+i.security.formIssues.length+" form security issue(s)",5,"formIssues");
-if(i.security.urlParams.length)a("error","🔐 "+i.security.urlParams.length+" sensitive URL param(s)",10);
+if(i.security.cveWarnings.length)a("error",icon("shield",11)+" "+i.security.cveWarnings.length+" known CVE(s) for v"+i.version,15);
+if(i.security.exposedConstants.length)a("warning",icon("shield",11)+" "+i.security.exposedConstants.length+" exposed constant(s) in JS",5);
+if(i.security.formIssues.length)a("warning",icon("shield",11)+" "+i.security.formIssues.length+" form security issue(s)",5,"formIssues");
+if(i.security.urlParams.length)a("error",icon("shield",11)+" "+i.security.urlParams.length+" sensitive URL param(s)",10);
+/* v0.2.43 — extended security warnings */
+if(i.security.mendixConstants&&i.security.mendixConstants.secrets>0)a("error",icon("shield",11)+" "+i.security.mendixConstants.secrets+" Mendix constant(s) look like secrets",8);
+if(i.security.mendixConstants&&i.security.mendixConstants.sensitive>0)a("warning",icon("shield",11)+" "+i.security.mendixConstants.sensitive+" Mendix constant(s) look sensitive",3);
+/* v0.2.53 — Demo users severity depends on environment:
+ *   - Dev / Local / Sandbox: yellow warning (demo users are expected here)
+ *   - Acceptance / Test / Production: red error (credentials leak is real)
+ * The envType classification comes from detectMendixMeta(). We match only
+ * true dev-style environments here, so Acceptance correctly falls through
+ * to the error branch. */
+if(i.security.demoUsers&&i.security.demoUsers.count>0){
+  var demoIsDev=/^(local|sandbox|development|dev)$/i.test(i.envType||"");
+  if(demoIsDev){
+    a("warning",icon("shield",11)+" "+i.security.demoUsers.count+" demo user(s) exposed (dev environment)",0);
+  } else {
+    a("error",icon("shield",11)+" "+i.security.demoUsers.count+" demo user(s) exposed in session",10);
+  }
+}
+if(i.security.anonymous&&i.security.anonymous.anonymous)a("warning",icon("shield",11)+" Anonymous session detected",0);
+if(i.security.devMode&&i.security.devMode.confidence==="high")a("warning",icon("shield",11)+" Development mode indicators detected",5);
+if(i.security.writableSensitive&&i.security.writableSensitive.withWrites>0)a("error",icon("shield",11)+" "+i.security.writableSensitive.withWrites+" sensitive entity/ies writable by current session",10);
 if(i.consoleErrors)a("error",i.consoleErrors+" errors visible",3);
 if(i.score>=90)a("success","Well optimized!",0);
 i.score=Math.max(0,i.score)}();
@@ -904,50 +1570,212 @@ var existing=document.getElementById("mx-inspector-pro");if(existing)existing.re
 var A=document.createElement("div");A.id="mx-inspector-pro";
 
 function icon(name,sz){return'<span class="mxi-icon" style="width:'+(sz||16)+'px;height:'+(sz||16)+'px">'+IC[name]+'</span>'}
-function tip(key){return TIPS[key]?'<span class="mxi-tip" title="'+TIPS[key]+'">?</span>':""}
-function section(id,title,ico,content,open,headerExtra){return'<div class="mxi-section'+(open?" open":"")+'"><div class="mxi-section-header" onclick="(function(e){var s=e.target.closest(\'.mxi-section\'),c=s.querySelector(\'.mxi-section-content\'),a=s.querySelector(\'.mxi-arrow\');var o=c.style.display!==\'none\';c.style.display=o?\'none\':\'block\';a.style.transform=o?\'rotate(-90deg)\':\'rotate(0)\';s.classList.toggle(\'open\',!o)})(event)"><span class="mxi-arrow" style="transform:'+(open?"rotate(0)":"rotate(-90deg)")+'">▼</span>'+icon(ico,14)+'<span style="margin-left:6px">'+title+'</span>'+(headerExtra||'')+'</div><div class="mxi-section-content" style="display:'+(open?"block":"none")+'">'+content+"</div></div>"}
+/* v0.2.47 — Rich tooltip system.
+ * Each TIPS entry is an object: { what, aim, details? }.
+ *   what    — one-sentence definition of the metric
+ *   aim     — concrete target value(s) / threshold(s) to aim for
+ *   details — optional array of supplementary bullet points
+ * The tip() helper emits the trigger button + a hidden popover. Hover-toggled
+ * via CSS, no JavaScript wiring needed. Styled like the main score info popover. */
+function tip(key){
+  var t = TIPS[key];
+  if (!t) return "";
+  /* Back-compat: strings are treated as 'what' with no aim */
+  if (typeof t === 'string') t = { what: t };
+  /* v0.2.52 — CRITICAL FIX: this was `<span class="mxi-tip">?<div...>`, which
+   * is INVALID HTML. Browsers auto-close the span before the div, so the
+   * .mxi-tip-pop was rendered as a SIBLING of .mxi-tip instead of a child.
+   * That's why every tooltip attempt since v0.2.47 silently failed:
+   * querySelector(".mxi-tip-pop") on the tip returned null, and CSS
+   * :hover .mxi-tip-pop never matched. Using a div container fixes this. */
+  var html = '<div class="mxi-tip"><span class="mxi-tip-mark">?</span><div class="mxi-tip-pop" role="tooltip">';
+  if (t.what) html += '<div class="mxi-tip-line"><strong>What it is</strong><br>' + t.what + '</div>';
+  if (t.aim)  html += '<div class="mxi-tip-line"><strong>Aim for</strong><br>' + t.aim + '</div>';
+  if (t.details && t.details.length) {
+    html += '<div class="mxi-tip-line"><strong>Details</strong><ul>';
+    t.details.forEach(function(d){ html += '<li>' + d + '</li>'; });
+    html += '</ul></div>';
+  }
+  html += '</div></div>';
+  return html;
+}
+function section(id,title,ico,content,open,headerExtra){return'<div class="mxi-section'+(open?" open":"")+'" data-section-id="'+id+'"><div class="mxi-section-header" onclick="(function(e){if(e.target.closest(\'.mxi-section-header-extra\'))return;var s=e.target.closest(\'.mxi-section\'),c=s.querySelector(\'.mxi-section-content\'),a=s.querySelector(\'.mxi-arrow\');var o=c.style.display!==\'none\';c.style.display=o?\'none\':\'block\';a.style.transform=o?\'rotate(-90deg)\':\'rotate(0)\';s.classList.toggle(\'open\',!o)})(event)"><span class="mxi-arrow" style="transform:'+(open?"rotate(0)":"rotate(-90deg)")+'">▼</span>'+icon(ico,14)+'<span style="margin-left:6px">'+title+'</span>'+(headerExtra||'')+'</div><div class="mxi-section-content" style="display:'+(open?"block":"none")+'">'+content+"</div></div>"}
 function metric(label,value,color,tipKey){return'<div class="mxi-metric">'+(tipKey?tip(tipKey):"")+'<div class="mxi-metric-value" style="color:'+(color||f)+'">'+value+'</div><div class="mxi-metric-label">'+label+"</div></div>"}
+/* v0.2.55 — highlightMetric: clickable metric tile backed by a pre-computed
+ * element array (i.highlightTargets[key]) instead of a CSS selector. Used
+ * for accessibility metrics where the offending elements are identified at
+ * scan time and can't be reliably re-found via a selector (contrast issues,
+ * small fonts, empty links, etc.). Renders as clickable + eye-iconed when
+ * there are actual targets to highlight, otherwise falls back to plain
+ * metric() so zero-issue tiles stay quiet.
+ * v0.2.56 — Eye icon moved to top-right corner as its own absolute element,
+ * bigger (14px) and more visible. */
+function highlightMetric(label,value,color,tipKey,highlightKey,severity){
+  var targets=i.highlightTargets&&i.highlightTargets[highlightKey];
+  if(!targets||!targets.length)return metric(label,value,color,tipKey);
+  return '<div class="mxi-metric mxi-metric-clickable mxi-metric-highlight" data-highlight-key="'+esc(highlightKey)+'" data-severity="'+(severity||"warning")+'" data-label="'+esc(label)+'"><span class="mxi-eye-badge" aria-hidden="true">'+icon("eye",14)+'</span>'+(tipKey?tip(tipKey):"")+'<div class="mxi-metric-value" style="color:'+(color||f)+'">'+value+'</div><div class="mxi-metric-label">'+esc(label)+"</div></div>";
+}
 function clickableMetric(label,value,selector,color,tipKey){
 var count=typeof value==="number"?value:parseInt(value)||0;
 if(count===0)return metric(label,value,color,tipKey);
 /* Use single quotes in selector to avoid HTML attribute escaping issues */
 var safeSelector=selector.replace(/"/g,"'");
-return'<div class="mxi-metric mxi-metric-clickable" data-selector="'+safeSelector+'" data-label="'+label+'" title="Click to highlight '+count+' '+label+'(s)">'+(tipKey?tip(tipKey):"")+'<div class="mxi-metric-value" style="color:'+(color||f)+'">'+value+'</div><div class="mxi-metric-label">'+label+' '+icon("eye",10)+"</div></div>"}
+/* v0.2.48 — removed the native title="Click to highlight ..." attribute. It was
+ * shadowing the rich ? tooltip: users saw the browser's delayed native tooltip
+ * and missed the ? badge entirely. The eye icon + hover border already signals
+ * the metric is clickable, and the rich popover explains what the metric means.
+ * v0.2.56 — Eye icon moved to top-right corner as its own absolute element,
+ * bigger (14px) and more visible. */
+return'<div class="mxi-metric mxi-metric-clickable" data-selector="'+safeSelector+'" data-label="'+label+'"><span class="mxi-eye-badge" aria-hidden="true">'+icon("eye",14)+'</span>'+(tipKey?tip(tipKey):"")+'<div class="mxi-metric-value" style="color:'+(color||f)+'">'+value+'</div><div class="mxi-metric-label">'+label+"</div></div>"}
 function tag(text,bg,color){return'<span class="mxi-tag" style="background:'+(bg||v)+';color:'+(color||f)+'">'+text+"</span>"}
 function scoreColor(s){return s>=80?gr:s>=60?k:m}
 function envIcon(type){return type==="Local"?"🟢":type==="Sandbox"?"🟡":type==="Acceptance"?"🟠":type==="Test"?"🔵":"🔴"}
 
 var insightsHtml="";
-if(i.warnings.length){insightsHtml='<div class="mxi-insights">';i.warnings.forEach(function(w){var hl=w.highlightKey&&i.highlightTargets[w.highlightKey];insightsHtml+='<div class="mxi-insight '+w.type+(hl?" mxi-insight-clickable":"")+'"'+(hl?' data-highlight-key="'+w.highlightKey+'" data-severity="'+w.type+'"':"")+'><span class="mxi-insight-dot"></span><span class="mxi-insight-text">'+w.msg+"</span>"+(hl?icon("eye",14):"")+"</div>"});insightsHtml+="</div>"}
+if(i.warnings.length){
+  insightsHtml='<div class="mxi-insights">';
+  i.warnings.forEach(function(w){
+    var hl=w.highlightKey&&i.highlightTargets[w.highlightKey];
+    var aware=w.highlightKey&&A11Y_AWARENESS[w.highlightKey];
+    var classes="mxi-insight "+w.type+(hl?" mxi-insight-clickable":"")+(aware?" mxi-insight-has-aware":"");
+    var dataAttrs=(hl?' data-highlight-key="'+w.highlightKey+'" data-severity="'+w.type+'"':"");
+    insightsHtml+='<div class="'+classes+'"'+dataAttrs+'>';
+    /* Row — existing dot + text + optional info/eye, wrapped so the
+     * aware panel can sit below without breaking flex alignment. */
+    insightsHtml+='<div class="mxi-insight-row">';
+    insightsHtml+='<span class="mxi-insight-dot"></span>';
+    insightsHtml+='<span class="mxi-insight-text">'+w.msg+'</span>';
+    if(aware){
+      insightsHtml+='<button class="mxi-insight-info-btn" type="button" aria-label="Why this matters" title="Why this matters">'+icon("info",13)+'</button>';
+    }
+    if(hl){
+      insightsHtml+='<span class="mxi-insight-eye" aria-hidden="true">'+icon("eye",14)+'</span>';
+    }
+    insightsHtml+='</div>';
+    /* Collapsed aware panel — shown when .expanded class is set on the
+     * parent insight. v0.2.63 — explains who and why for each finding. */
+    if(aware){
+      insightsHtml+='<div class="mxi-insight-aware">';
+      insightsHtml+='<div class="mxi-aware-line"><strong>Who this affects</strong><br>'+esc(aware.who)+'</div>';
+      insightsHtml+='<div class="mxi-aware-line"><strong>Why it matters</strong><br>'+esc(aware.why)+'</div>';
+      if(aware.wcag){
+        insightsHtml+='<div class="mxi-aware-line mxi-aware-wcag">'+esc(aware.wcag)+'</div>';
+      }
+      insightsHtml+='</div>';
+    }
+    insightsHtml+='</div>';
+  });
+  insightsHtml+='</div>';
+}
 
 function renderTree(node,d){if(!node||d>3)return"";var indent=d*16;var ti=node.type==="dv"?"📋":node.type==="lv"?"📜":node.type==="sn"?"📦":"▪️";var html='<div style="margin-left:'+indent+'px;padding:3px 0;font-size:12px">'+ti+" "+esc(node.name)+"</div>";if(node.children)node.children.forEach(function(c){html+=renderTree(c,d+1)});return html}
 var treeHtml=i.widgetTree?renderTree(i.widgetTree,0):'<div style="color:'+x+'">No tree</div>';
 
 var a11yImpr="";if(i.a11y.improvements.length){a11yImpr='<div class="mxi-improvements"><div class="mxi-impr-title">'+icon("bulb",14)+' How to improve:</div><ul>';i.a11y.improvements.slice(0,5).forEach(function(imp){a11yImpr+="<li>"+imp+"</li>"});a11yImpr+="</ul></div>"}
 
-var css='<style>@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");#mx-inspector-pro{position:fixed;top:20px;right:20px;width:432px;max-height:92vh;background:'+w+';border-radius:20px;box-shadow:0 0 0 1px '+b+',0 25px 80px rgba(0,0,0,.6);font-family:Inter,system-ui,-apple-system,sans-serif;font-size:13px;z-index:999999;overflow:hidden;display:flex;flex-direction:column}#mx-inspector-pro *{box-sizing:border-box}.mxi-icon{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;flex-shrink:0}.mxi-header{padding:20px 24px 20px 20px;border-bottom:1px solid '+b+';background:'+w+';cursor:move;user-select:none}.mxi-header-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}.mxi-logo{display:flex;align-items:center;gap:14px}.mxi-title{font-weight:600;font-size:14px;color:'+h+';letter-spacing:-.2px;margin-right:12px}.mxi-badge{font-size:10px;padding:4px 10px;border-radius:8px;font-weight:500;background:'+y+';color:'+f+';border:1px solid '+b+'}.mxi-badge-accent{background:transparent;border:1px solid #FF7A50;color:#FF7A50}.mxi-header-buttons{display:flex;align-items:center;gap:6px}.mxi-icon-btn{background:none;border:none;cursor:pointer;padding:8px;border-radius:10px;color:#666666;display:flex;align-items:center;justify-content:center;transition:all .2s;position:relative}.mxi-icon-btn:hover{background:#242424;color:#FFFFFF}.mxi-icon-btn svg{width:16px;height:16px;fill:currentColor}.mxi-info-tooltip{position:absolute;top:100%;right:0;margin-top:8px;background:#1A1A1A;color:#FFFFFF;padding:14px 16px;border-radius:12px;font-size:11px;width:240px;white-space:normal;opacity:0;visibility:hidden;transition:all .2s;z-index:1000;font-weight:400;border:1px solid #2E2E2E;box-shadow:0 10px 40px rgba(0,0,0,.5)}.mxi-info-tooltip.show{opacity:1;visibility:visible}.mxi-info-tooltip strong{color:#FFB800}.mxi-info-tooltip a{color:#3B99FC;text-decoration:none}.mxi-info-tooltip a:hover{text-decoration:underline}.mxi-info-line{margin-bottom:8px;line-height:1.5}.mxi-info-line:last-child{margin-bottom:0}.mxi-coffee-btn{display:inline-flex;align-items:center;gap:6px;background:#FFB800;color:#141414;padding:8px 14px;border-radius:8px;font-weight:600;font-size:11px;margin-top:10px;text-decoration:none!important;-webkit-text-fill-color:#141414}.mxi-coffee-btn:hover{background:#ffcc33;text-decoration:none!important}.mxi-coffee-btn svg{width:14px;height:14px;fill:#141414}.mxi-env{background:'+y+';border:1px solid '+b+';border-radius:12px;padding:12px 14px;font-size:11px;display:flex;align-items:center;gap:10px;color:'+f+'}.mxi-env-url{color:'+k+';flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.mxi-body{flex:1;overflow-y:auto;padding:16px;background:'+w+'}.mxi-score{display:flex;align-items:center;gap:16px;padding:20px;background:'+y+';border-radius:16px;margin-bottom:12px;border:1px solid '+b+'}.mxi-score-circle{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:'+w+'}.mxi-score-info{flex:1}.mxi-score-label{font-size:14px;font-weight:600;color:'+h+'}.mxi-score-desc{font-size:11px;color:'+x+';margin-top:4px}.mxi-page-info{background:'+y+';border-radius:16px;padding:16px;margin-bottom:12px;border:1px solid '+b+'}.mxi-page-row{display:flex;gap:12px;align-items:center}.mxi-page-main{flex:1;min-width:0}.mxi-page-module{font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:500}.mxi-page-name{font-size:13px;font-weight:600;color:'+h+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mxi-page-popup{font-size:9px;background:'+p+';color:'+w+';padding:3px 8px;border-radius:6px;margin-left:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}.mxi-copy-btn{background:'+y+';border:1px solid '+b+';color:'+f+';width:40px;height:40px;border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}.mxi-copy-btn:hover{background:'+k+';border-color:'+k+';color:'+w+'}.mxi-copy-btn svg{width:14px;height:14px}.mxi-section{margin-bottom:8px;background:'+y+';border-radius:16px;overflow:hidden;border:1px solid '+b+'}.mxi-section-header{display:flex;align-items:center;gap:8px;padding:14px 16px;cursor:pointer;font-weight:500;font-size:12px;color:'+h+';user-select:none;letter-spacing:-.2px}.mxi-section-header:hover{background:'+v+'}.mxi-section.open .mxi-section-header{background:transparent}.mxi-section.open .mxi-section-header:hover{background:transparent}.mxi-arrow{font-size:10px;color:'+x+';transition:transform .2s;margin-right:4px}.mxi-section-content{padding:0 16px 16px}.mxi-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.mxi-metrics-3{grid-template-columns:repeat(3,1fr)}.mxi-metrics-5{grid-template-columns:repeat(5,1fr)}.mxi-metrics-2{grid-template-columns:repeat(2,1fr)}.mxi-metric{background:'+v+';border-radius:10px;padding:12px 8px;text-align:center;position:relative;min-width:0}.mxi-metric-clickable{cursor:pointer;transition:all .2s;border:1px solid transparent}.mxi-metric-clickable:hover{background:'+y+';border-color:'+k+';transform:translateY(-2px)}.mxi-metric-clickable:hover .mxi-metric-label{color:'+k+'}.mxi-metric-clickable .mxi-icon{opacity:.5;margin-left:4px}.mxi-metric-clickable:hover .mxi-icon{opacity:1;color:'+k+'}.mxi-metric-value{font-size:14px;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:'+h+'}.mxi-metric-label{font-size:9px;color:'+x+';margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;letter-spacing:.5px}.mxi-tip{position:absolute;bottom:4px;right:4px;cursor:help;width:14px;height:14px;background:'+y+';border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:'+x+'}.mxi-tip:hover{background:'+k+';color:'+w+'}.mxi-insights{display:flex;flex-direction:column;gap:6px}.mxi-insight{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-radius:12px;font-size:12px;line-height:1.5;background:'+v+';border:1px solid transparent}.mxi-insight-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:5px}.mxi-insight.error{background:rgba(255,90,90,.08);border-color:rgba(255,90,90,.2)}.mxi-insight.error .mxi-insight-dot{background:'+m+'}.mxi-insight.warning{border-color:rgba(255,184,0,.2)}.mxi-insight.warning .mxi-insight-dot{background:'+k+'}.mxi-insight.info{border-color:rgba(59,153,252,.25)}.mxi-insight.info .mxi-insight-dot{background:#3B99FC}.mxi-insight.success .mxi-insight-dot{background:#2D9C5E}.mxi-insight-text{flex:1;color:'+f+'}.mxi-insight.error .mxi-insight-text{color:#FF8A8A}.mxi-insight-clickable{cursor:pointer;transition:all .2s}.mxi-insight-clickable:hover{background:'+y+';transform:translateX(2px)}.mxi-insight-clickable.active{background:'+k+'!important;border-color:'+k+'!important}.mxi-insight-clickable.active .mxi-insight-text{color:'+w+'!important}.mxi-insight-clickable.active .mxi-insight-dot{background:'+w+'!important}.mxi-insight-clickable.active .mxi-icon{color:'+w+'!important}.mxi-insight .mxi-icon{color:'+x+'}.mxi-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.mxi-tag{padding:6px 10px;border-radius:8px;font-size:10px;font-weight:500;background:'+v+';color:'+f+'}.mxi-role-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}.mxi-role-tag{background:#3B99FC;color:'+w+';padding:6px 12px;border-radius:8px;font-size:10px;font-weight:600}.mxi-improvements{background:'+v+';border-radius:10px;padding:12px;margin-top:10px}.mxi-impr-title{font-weight:600;font-size:10px;color:'+h+';margin-bottom:8px;display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:.5px}.mxi-improvements ul{margin:0;padding-left:16px;font-size:11px;color:'+f+'}.mxi-improvements li{margin-bottom:4px}.mxi-a11y-top{display:flex;align-items:center;justify-content:space-between}.mxi-a11y-score-wrap{display:flex;align-items:baseline;gap:2px}.mxi-a11y-score{font-size:26px;font-weight:700;color:'+h+'}.mxi-a11y-label{font-size:12px;color:'+x+'}.mxi-a11y-badge{padding:6px 12px;border-radius:8px;font-size:10px;font-weight:600}.mxi-footer{padding:16px;border-top:1px solid '+b+';display:flex;gap:8px;background:'+w+'}.mxi-btn{flex:1;padding:12px 16px;border:none;border-radius:12px;cursor:pointer;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .2s;letter-spacing:-.1px}.mxi-btn:hover{transform:translateY(-1px)}.mxi-btn-primary{background:'+k+';color:'+w+'}.mxi-btn-secondary{background:'+y+';color:'+h+';border:1px solid '+b+'}.mxi-btn-secondary:hover{background:'+v+'}.mxi-highlight{outline:3px solid currentColor!important;outline-offset:2px!important}@keyframes mxi-pulse{0%,100%{opacity:1}50%{opacity:.7}}.mxi-highlight-label{position:fixed!important;color:'+w+'!important;font-size:10px!important;padding:4px 10px!important;border-radius:8px!important;z-index:999998!important;white-space:nowrap!important;pointer-events:none!important;font-weight:600!important}.mxi-clear-btn{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#FFB800;color:#141414;border:none;padding:12px 24px;border-radius:12px;font-family:Inter,system-ui,-apple-system,sans-serif;font-size:11px;font-weight:600;cursor:pointer;z-index:999999;display:none;box-shadow:0 4px 20px rgba(255,184,0,.4);transition:all .2s}.mxi-clear-btn:hover{transform:translateX(-50%) translateY(-2px)}.mxi-session-roles{background:'+v+';border-radius:10px;padding:12px;margin-bottom:10px}.mxi-session-roles-title{font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;font-weight:500}.mxi-session-grid{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center}.mxi-session-user{background:'+y+';border-radius:10px;padding:10px 12px}.mxi-session-user-value{font-size:11px;font-weight:500;color:'+h+';word-break:break-all}.mxi-session-user-label{font-size:9px;color:'+x+';margin-top:2px;text-transform:uppercase;letter-spacing:.5px}.mxi-session-small{background:'+y+';border-radius:10px;padding:10px 12px;text-align:center;min-width:56px}.mxi-session-small-value{font-size:11px;font-weight:600}.mxi-session-small-label{font-size:9px;color:'+x+';margin-top:2px;text-transform:uppercase;letter-spacing:.5px}#mx-inspector-pro::-webkit-scrollbar{width:6px!important;height:6px!important}#mx-inspector-pro::-webkit-scrollbar-track{background:#141414!important}#mx-inspector-pro::-webkit-scrollbar-thumb{background:#2E2E2E!important;border-radius:3px!important}#mx-inspector-pro::-webkit-scrollbar-thumb:hover{background:#666666!important}#mx-inspector-pro .mxi-body::-webkit-scrollbar{width:6px!important;height:6px!important}#mx-inspector-pro .mxi-body::-webkit-scrollbar-track{background:#141414!important}#mx-inspector-pro .mxi-body::-webkit-scrollbar-thumb{background:#2E2E2E!important;border-radius:3px!important}#mx-inspector-pro .mxi-body::-webkit-scrollbar-thumb:hover{background:#666666!important}#mx-inspector-pro *{scrollbar-width:thin!important;scrollbar-color:#2E2E2E #141414!important}</style>';
+var css='<style>@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");#mx-inspector-pro{position:fixed;top:20px;right:20px;width:432px;max-height:92vh;background:'+w+';border-radius:20px;box-shadow:0 0 0 1px '+b+',0 25px 80px rgba(0,0,0,.6);font-family:Inter,system-ui,-apple-system,sans-serif;font-size:13px;z-index:999999;overflow:hidden;display:flex;flex-direction:column}#mx-inspector-pro *{box-sizing:border-box}.mxi-icon{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;flex-shrink:0}.mxi-header{padding:20px 24px 20px 20px;border-bottom:1px solid '+b+';background:'+w+';cursor:move;user-select:none}.mxi-header-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}.mxi-logo{display:flex;align-items:center;gap:14px}.mxi-title{font-weight:600;font-size:14px;color:'+h+';letter-spacing:-.2px;margin-right:12px}.mxi-badge{font-size:10px;padding:4px 10px;border-radius:8px;font-weight:500;background:'+y+';color:'+f+';border:1px solid '+b+'}.mxi-badge-accent{background:transparent;border:1px solid #FF7A50;color:#FF7A50}.mxi-header-buttons{display:flex;align-items:center;gap:6px}.mxi-icon-btn{background:none;border:none;cursor:pointer;padding:8px;border-radius:10px;color:#666666;display:flex;align-items:center;justify-content:center;transition:all .2s;position:relative}.mxi-icon-btn:hover{background:#242424;color:#FFFFFF}.mxi-icon-btn svg{width:16px;height:16px;fill:currentColor}.mxi-info-tooltip{position:absolute;top:100%;right:0;margin-top:8px;background:#1A1A1A;color:#FFFFFF;padding:14px 16px;border-radius:12px;font-size:11px;width:240px;white-space:normal;opacity:0;visibility:hidden;transition:all .2s;z-index:1000;font-weight:400;border:1px solid #2E2E2E;box-shadow:0 10px 40px rgba(0,0,0,.5)}.mxi-info-tooltip.show{opacity:1;visibility:visible}.mxi-info-tooltip strong{color:#FFB800}.mxi-info-tooltip a{color:#3B99FC;text-decoration:none}.mxi-info-tooltip a:hover{text-decoration:underline}.mxi-info-line{margin-bottom:8px;line-height:1.5}.mxi-info-line:last-child{margin-bottom:0}.mxi-coffee-btn{display:inline-flex;align-items:center;gap:6px;background:#FFB800;color:#141414;padding:8px 14px;border-radius:8px;font-weight:600;font-size:11px;margin-top:10px;text-decoration:none!important;-webkit-text-fill-color:#141414}.mxi-coffee-btn:hover{background:#ffcc33;text-decoration:none!important}.mxi-coffee-btn svg{width:14px;height:14px;fill:#141414}.mxi-env{background:'+y+';border:1px solid '+b+';border-radius:12px;padding:12px 14px;font-size:11px;display:flex;align-items:center;gap:10px;color:'+f+'}.mxi-env-url{color:'+k+';flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.mxi-body{flex:1;overflow-y:auto;padding:16px;background:'+w+'}.mxi-score{display:flex;align-items:center;gap:16px;padding:20px;background:'+y+';border-radius:16px;margin-bottom:12px;border:1px solid '+b+'}.mxi-score-circle{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:'+w+'}.mxi-score-info{flex:1}.mxi-score-label{font-size:14px;font-weight:600;color:'+h+'}.mxi-score-desc{font-size:11px;color:'+x+';margin-top:4px}.mxi-page-info{background:'+y+';border-radius:16px;padding:16px;margin-bottom:12px;border:1px solid '+b+'}.mxi-page-row{display:flex;gap:12px;align-items:center}.mxi-page-main{flex:1;min-width:0}.mxi-page-module{font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:500}.mxi-page-name{font-size:13px;font-weight:600;color:'+h+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mxi-page-popup{font-size:9px;background:'+p+';color:'+w+';padding:3px 8px;border-radius:6px;margin-left:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}.mxi-copy-btn{background:'+y+';border:1px solid '+b+';color:'+f+';width:40px;height:40px;border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}.mxi-copy-btn:hover{background:'+k+';border-color:'+k+';color:'+w+'}.mxi-copy-btn svg{width:14px;height:14px}.mxi-section{margin-bottom:8px;background:'+y+';border-radius:16px;border:1px solid '+b+'}.mxi-section-header{display:flex;align-items:center;gap:8px;padding:14px 16px;cursor:pointer;font-weight:500;font-size:12px;color:'+h+';user-select:none;letter-spacing:-.2px}.mxi-section-header:hover{background:'+v+'}.mxi-section.open .mxi-section-header{background:transparent}.mxi-section.open .mxi-section-header:hover{background:transparent}.mxi-arrow{font-size:10px;color:'+x+';transition:transform .2s;margin-right:4px}.mxi-section-content{padding:0 16px 16px}.mxi-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.mxi-metrics-3{grid-template-columns:repeat(3,1fr)}.mxi-metrics-5{grid-template-columns:repeat(5,1fr)}.mxi-metrics-2{grid-template-columns:repeat(2,1fr)}.mxi-metric{background:'+v+';border-radius:10px;padding:12px 8px;text-align:center;position:relative;min-width:0}.mxi-metric-clickable{cursor:pointer;transition:all .2s;border:1px solid transparent}.mxi-metric-clickable:hover{background:'+y+';border-color:rgba(255,255,255,.18);transform:translateY(-2px)}.mxi-metric-clickable:hover .mxi-metric-label{color:#FFFFFF}.mxi-metric-highlight[data-severity="warning"]:hover{border-color:'+k+'}.mxi-metric-highlight[data-severity="warning"]:hover .mxi-metric-label{color:'+k+'}.mxi-eye-badge{position:absolute;top:4px;right:4px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.06);border-radius:5px;color:#808080;transition:background .15s,color .15s,transform .15s;pointer-events:none}.mxi-eye-badge svg{width:14px;height:14px}.mxi-metric-clickable:hover .mxi-eye-badge{background:rgba(255,255,255,.14);color:#FFFFFF;transform:scale(1.05)}.mxi-metric-highlight[data-severity="warning"] .mxi-eye-badge{background:rgba(255,184,0,.18);color:#FFB800}.mxi-metric-highlight[data-severity="warning"]:hover .mxi-eye-badge{background:#FFB800;color:#141414}.mxi-metric-highlight[data-severity="notice"] .mxi-eye-badge{background:rgba(255,122,80,.2);color:#FF7A50}.mxi-metric-highlight[data-severity="notice"]:hover .mxi-eye-badge{background:#FF7A50;color:#141414}.mxi-metric-highlight[data-severity="notice"]:hover{border-color:#FF7A50}.mxi-metric-highlight[data-severity="notice"]:hover .mxi-metric-label{color:#FF7A50}.mxi-metric-highlight[data-severity="error"] .mxi-eye-badge{background:rgba(255,90,90,.18);color:#FF5A5A}.mxi-metric-highlight[data-severity="error"]:hover .mxi-eye-badge{background:#FF5A5A;color:#141414}.mxi-metric-highlight[data-severity="error"]:hover{border-color:#FF5A5A}.mxi-metric-highlight[data-severity="error"]:hover .mxi-metric-label{color:#FF5A5A}.mxi-metric-value{font-size:14px;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:'+h+'}.mxi-metric-label{font-size:9px;color:'+x+';margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;letter-spacing:.5px}.mxi-tip{position:absolute;bottom:3px;right:3px;width:14px;height:14px;cursor:help}.mxi-metric:has(.mxi-tip:hover){z-index:100}.mxi-tip-mark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.06);border-radius:4px;font-size:9px;font-weight:700;color:#808080;transition:background .15s,color .15s}.mxi-tip:hover .mxi-tip-mark{background:'+k+';color:#141414}.mxi-tip-pop{position:absolute;bottom:calc(100% + 6px);right:0;min-width:220px;max-width:280px;background:#1A1A1A;color:#FFFFFF;padding:14px 16px;border-radius:12px;font-size:11px;font-weight:400;line-height:1.5;white-space:normal;text-align:left;text-transform:none;letter-spacing:0;opacity:0;visibility:hidden;transition:opacity .15s,visibility .15s;z-index:100;border:1px solid #2E2E2E;box-shadow:0 10px 40px rgba(0,0,0,.5);pointer-events:none}.mxi-tip:hover .mxi-tip-pop{opacity:1;visibility:visible}.mxi-tip-line{margin-bottom:10px}.mxi-tip-line:last-child{margin-bottom:0}.mxi-tip-line strong{color:#FFB800;font-weight:600;display:inline-block;margin-bottom:4px;font-size:10px;text-transform:uppercase;letter-spacing:.5px}.mxi-tip-line ul{margin:4px 0 0 0;padding-left:16px;color:#B8B8B8}.mxi-tip-line li{margin-bottom:3px}.mxi-tip-line code{background:#0A0A0A;color:#FFB800;padding:1px 5px;border-radius:3px;font-size:10px}.mxi-insights{display:flex;flex-direction:column;gap:6px}.mxi-insight{display:flex;flex-direction:column;padding:12px 14px;border-radius:12px;font-size:12px;line-height:1.5;background:'+v+';border:1px solid transparent}.mxi-insight-row{display:flex;align-items:flex-start;gap:12px}.mxi-insight-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:5px}.mxi-insight.error{background:rgba(255,90,90,.08);border-color:rgba(255,90,90,.2)}.mxi-insight.error .mxi-insight-dot{background:'+m+'}.mxi-insight.warning{border-color:rgba(255,184,0,.2)}.mxi-insight.warning .mxi-insight-dot{background:'+k+'}.mxi-insight.info{border-color:rgba(59,153,252,.25)}.mxi-insight.info .mxi-insight-dot{background:#3B99FC}.mxi-insight.success .mxi-insight-dot{background:#2D9C5E}.mxi-insight-text{flex:1;color:'+f+'}.mxi-insight.error .mxi-insight-text{color:#FF8A8A}.mxi-insight-clickable .mxi-insight-row{cursor:pointer;transition:transform .2s}.mxi-insight-clickable:hover{background:'+y+'}.mxi-insight-clickable:hover .mxi-insight-row{transform:translateX(2px)}.mxi-insight-clickable.active{background:'+k+'!important;border-color:'+k+'!important}.mxi-insight-clickable.active .mxi-insight-text{color:'+w+'!important}.mxi-insight-clickable.active .mxi-insight-dot{background:'+w+'!important}.mxi-insight-clickable.active .mxi-insight-eye{color:'+w+'!important}.mxi-insight .mxi-insight-eye{color:'+x+';flex-shrink:0}.mxi-insight-info-btn{background:rgba(255,255,255,.06);border:none;width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#9A9A9A;padding:0;transition:background .15s,color .15s;flex-shrink:0}.mxi-insight-info-btn:hover{background:rgba(255,255,255,.14);color:#FFFFFF}.mxi-insight-info-btn svg{width:13px;height:13px;fill:currentColor}.mxi-insight.expanded .mxi-insight-info-btn{background:'+k+';color:#141414}.mxi-insight-aware{display:none;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);font-size:11.5px;line-height:1.55;color:#B8B8B8}.mxi-insight.expanded .mxi-insight-aware{display:block}.mxi-aware-line{margin-bottom:10px}.mxi-aware-line:last-child{margin-bottom:0}.mxi-aware-line strong{color:'+h+';font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px;display:inline-block;margin-bottom:3px}.mxi-aware-line.mxi-aware-wcag{font-size:10.5px;color:#9A9A9A;font-style:italic;border-left:2px solid rgba(255,184,0,.4);padding-left:8px;margin-top:10px}.mxi-ds-list{display:flex;flex-direction:column;gap:4px}.mxi-ds-row{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:'+v+';border-radius:8px;border:1px solid transparent;transition:background .15s,border-color .15s}.mxi-ds-row:hover{background:'+y+';border-color:rgba(255,255,255,.08)}.mxi-ds-row-subtle{opacity:.8}.mxi-ds-name-wrap{flex:1;min-width:0;display:flex;align-items:center;gap:6px;flex-wrap:wrap;overflow:visible}.mxi-ds-mod{font-size:9.5px;color:#666;font-weight:400;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px}.mxi-ds-mod:after{content:"."}.mxi-ds-name{font-size:11.5px;color:'+h+';font-weight:500;font-family:"SF Mono",Monaco,Consolas,monospace;white-space:normal;word-break:break-all;min-width:0;flex:1;line-height:1.35}.mxi-ds-meta{display:flex;align-items:center;gap:6px;flex-shrink:0;padding-top:1px}.mxi-ds-dur{font-size:10px;color:#9A9A9A;font-variant-numeric:tabular-nums}.mxi-ds-count{font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;font-variant-numeric:tabular-nums}.mxi-ds-count-lo{background:rgba(255,255,255,.06);color:#9A9A9A}.mxi-ds-count-med{background:rgba(255,184,0,.15);color:#FFB800}.mxi-ds-count-hi{background:rgba(255,122,80,.2);color:#FF7A50}.mxi-ds-copy{background:rgba(255,255,255,.06);border:none;width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#9A9A9A;padding:0;transition:background .15s,color .15s;flex-shrink:0}.mxi-ds-copy:hover{background:rgba(255,255,255,.14);color:#FFFFFF}.mxi-ds-copy svg{width:11px;height:11px;fill:currentColor}.mxi-ds-copy.mxi-ds-copied{background:#2D9C5E;color:#141414}.mxi-ds-name-opid{color:#9A9A9A!important;font-size:10.5px!important;white-space:normal!important;word-break:break-all!important;overflow:visible!important;text-overflow:clip!important;line-height:1.35}.mxi-ds-shape{font-size:9.5px;color:#8FB8EF;background:rgba(59,153,252,.1);border:1px solid rgba(59,153,252,.22);padding:2px 7px;border-radius:10px;font-family:Inter,system-ui,sans-serif;white-space:nowrap;flex-shrink:0}.mxi-ds-write{font-size:11px;color:#FFB800;flex-shrink:0;margin-left:2px}.mxi-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.mxi-tag{padding:6px 10px;border-radius:8px;font-size:10px;font-weight:500;background:'+v+';color:'+f+'}.mxi-role-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}.mxi-role-tag{background:#FFB800;color:#141414;padding:6px 12px;border-radius:8px;font-size:10px;font-weight:600}.mxi-improvements{background:'+v+';border-radius:10px;padding:12px;margin-top:10px}.mxi-impr-title{font-weight:600;font-size:10px;color:'+h+';margin-bottom:8px;display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:.5px}.mxi-improvements ul{margin:0;padding-left:16px;font-size:11px;color:'+f+'}.mxi-improvements li{margin-bottom:4px}.mxi-a11y-top{display:flex;align-items:center;justify-content:space-between}.mxi-a11y-score-wrap{display:flex;align-items:baseline;gap:2px}.mxi-a11y-score{font-size:26px;font-weight:700;color:'+h+'}.mxi-a11y-label{font-size:12px;color:'+x+'}.mxi-a11y-badge{padding:6px 12px;border-radius:8px;font-size:10px;font-weight:600}.mxi-footer{padding:16px;border-top:1px solid '+b+';display:flex;gap:8px;background:'+w+'}.mxi-btn{flex:1;padding:12px 16px;border:none;border-radius:12px;cursor:pointer;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .2s;letter-spacing:-.1px}.mxi-btn:hover{transform:translateY(-1px)}.mxi-btn-primary{background:'+k+';color:'+w+'}.mxi-btn-secondary{background:'+y+';color:'+h+';border:1px solid '+b+'}.mxi-btn-secondary:hover{background:'+v+'}.mxi-highlight{outline:3px solid currentColor!important;outline-offset:2px!important}@keyframes mxi-pulse{0%,100%{opacity:1}50%{opacity:.7}}.mxi-highlight-label{position:fixed!important;color:'+w+'!important;font-size:10px!important;padding:4px 10px!important;border-radius:8px!important;z-index:999998!important;white-space:nowrap!important;pointer-events:none!important;font-weight:600!important}.mxi-clear-btn{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#FFB800;color:#141414;border:none;padding:12px 24px;border-radius:12px;font-family:Inter,system-ui,-apple-system,sans-serif;font-size:11px;font-weight:600;cursor:pointer;z-index:999999;display:none;box-shadow:0 4px 20px rgba(255,184,0,.4);transition:all .2s}.mxi-clear-btn:hover{transform:translateX(-50%) translateY(-2px)}.mxi-session-roles{background:'+v+';border-radius:10px;padding:12px;margin-bottom:10px}.mxi-session-roles-title{font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;font-weight:500}.mxi-session-grid{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center}.mxi-session-user{background:'+y+';border-radius:10px;padding:10px 12px}.mxi-session-user-value{font-size:11px;font-weight:500;color:'+h+';word-break:break-all}.mxi-session-user-label{font-size:9px;color:'+x+';margin-top:2px;text-transform:uppercase;letter-spacing:.5px}.mxi-session-small{background:'+y+';border-radius:10px;padding:10px 12px;text-align:center;min-width:56px}.mxi-session-small-value{font-size:11px;font-weight:600}.mxi-session-small-label{font-size:9px;color:'+x+';margin-top:2px;text-transform:uppercase;letter-spacing:.5px}#mx-inspector-pro::-webkit-scrollbar{width:6px!important;height:6px!important}#mx-inspector-pro::-webkit-scrollbar-track{background:#141414!important}#mx-inspector-pro::-webkit-scrollbar-thumb{background:#2E2E2E!important;border-radius:3px!important}#mx-inspector-pro::-webkit-scrollbar-thumb:hover{background:#666666!important}#mx-inspector-pro .mxi-body::-webkit-scrollbar{width:6px!important;height:6px!important}#mx-inspector-pro .mxi-body::-webkit-scrollbar-track{background:#141414!important}#mx-inspector-pro .mxi-body::-webkit-scrollbar-thumb{background:#2E2E2E!important;border-radius:3px!important}#mx-inspector-pro .mxi-body::-webkit-scrollbar-thumb:hover{background:#666666!important}#mx-inspector-pro *{scrollbar-width:thin!important;scrollbar-color:#2E2E2E #141414!important}.mxi-meta{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px}.mxi-meta-pill{background:'+v+';border:1px solid '+b+';color:#9A9A9A;padding:4px 10px;border-radius:8px;font-size:10px;font-weight:500;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}.mxi-meta-pill strong{color:'+h+';font-weight:600}.mxi-chip-btn{background:rgba(255,255,255,.06);border:none;width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#9A9A9A;padding:0;transition:background .15s,color .15s;flex-shrink:0;position:relative}.mxi-chip-btn:hover{background:rgba(255,255,255,.14);color:#FFFFFF}.mxi-chip-btn svg{fill:currentColor}.mxi-chip-btn.mxi-chip-spin{transform:rotate(180deg);transition:transform .3s}</style>';
 
 var scoreLabel=i.score>=90?"Excellent":i.score>=80?"Good":i.score>=60?"Fair":"Needs Work";
 
 /* Build Sections */
 var containerTotal=i.dataViews+i.listViews+i.templateGrids+i.dataGrid2s+i.galleries+i.treeNodes;
-var widgetsContent='<div style="font-size:9px;color:'+x+';margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;font-weight:500">DATA CONTAINERS</div><div class="mxi-metrics mxi-metrics-3" style="margin-bottom:8px">'+clickableMetric("DataView",i.dataViews,'.mx-dataview:not(.mx-dataview-content)[class*="mx-name-"]',null,"dataviews")+clickableMetric("ListView",i.listViews,'.mx-listview[class*="mx-name-"]',null,"listviews")+clickableMetric("TemplateGrid",i.templateGrids,'.mx-templategrid[class*="mx-name-"]',null,"templategrid")+'</div><div class="mxi-metrics mxi-metrics-3" style="margin-bottom:8px">'+clickableMetric("DataGrid2",i.dataGrid2s,'.widget-datagrid[class*="mx-name-"]',null,"datagrid2")+clickableMetric("Gallery",i.galleries,'.widget-gallery[class*="mx-name-"]',null,"galleries")+clickableMetric("TreeNode",i.treeNodes,'.widget-tree-node[class*="mx-name-"],.mx-treeview[class*="mx-name-"]',i.treeNodes>0?p:null,"treenode")+'</div><div class="mxi-metrics mxi-metrics-2">'+metric("Nested Issues",i.nestedDataViewsWarning.length+i.nestedDataViewsCritical.length,i.nestedDataViewsCritical.length?m:i.nestedDataViewsWarning.length?k:gr,"nesting")+metric("Total Widgets",i.totalWidgets)+'</div>';
+var widgetsContent=
+  '<div style="font-size:10px;color:'+x+';margin-bottom:10px;font-weight:400;font-style:italic">Widgets that bind to data</div>'+
+  '<div class="mxi-metrics mxi-metrics-3" style="margin-bottom:8px">'+
+    clickableMetric("DataView",i.dataViews,'.mx-dataview:not(.mx-dataview-content)[class*="mx-name-"]',null,"dataviews")+
+    clickableMetric("ListView",i.listViews,'.mx-listview[class*="mx-name-"]',null,"listviews")+
+    clickableMetric("TemplateGrid",i.templateGrids,'.mx-templategrid[class*="mx-name-"]',null,"templategrid")+
+  '</div>'+
+  '<div class="mxi-metrics mxi-metrics-3">'+
+    clickableMetric("DataGrid2",i.dataGrid2s,'.widget-datagrid[class*="mx-name-"]',null,"datagrid2")+
+    clickableMetric("Gallery",i.galleries,'.widget-gallery[class*="mx-name-"]',null,"galleries")+
+    clickableMetric("TreeNode",i.treeNodes,'.widget-tree-node[class*="mx-name-"],.mx-treeview[class*="mx-name-"]',i.treeNodes>0?p:null,"treenode")+
+  '</div>'+
+  /* v0.2.60 — Nested Data Views: two-box layout under a CAPS heading.
+   * Normal (depth-2) stays neutral white when load is fast; turns yellow
+   * when the page is slow — because that's when nested sources are likely
+   * the cause. Deeply Nested (depth 3+) is orange even on fast pages
+   * (it's still a code smell), red when the page is slow. */
+  (function(){
+    var loadSlow=i.loadTime>2000;
+    var normalCount=i.nestedDataViewsWarning.length;
+    var deepCount=i.nestedDataViewsCritical.length;
+    var normalSev=(normalCount>0&&loadSlow)?"warning":"info";
+    var normalColor=(normalCount>0&&loadSlow)?k:h;
+    var deepSev=deepCount===0?"info":(loadSlow?"error":"notice");
+    var deepColor=deepCount===0?h:(loadSlow?m:p);
+    var normalTile=normalCount===0
+      ? metric("Normal",0,h,"nestingNormal")
+      : highlightMetric("Normal",normalCount,normalColor,"nestingNormal","nestedDataViewsWarning",normalSev);
+    var deepTile=deepCount===0
+      ? metric("Deeply Nested",0,h,"nestingDeep")
+      : highlightMetric("Deeply Nested",deepCount,deepColor,"nestingDeep","nestedDataViewsCritical",deepSev);
+    return '<div style="margin-top:12px;padding-top:12px;border-top:1px solid '+b+'">'+
+             '<div style="font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;font-weight:500">Nested Data Views</div>'+
+             '<div class="mxi-metrics mxi-metrics-2">'+normalTile+deepTile+'</div>'+
+           '</div>';
+  })();
 
 var sessionContent='';
 if(i.roles){sessionContent+='<div class="mxi-session-roles"><div class="mxi-session-roles-title">USER ROLE(S)</div><div class="mxi-role-tags">';i.roles.split(", ").forEach(function(r){if(r.trim())sessionContent+='<span class="mxi-role-tag">'+esc(r.trim())+'</span>'});sessionContent+='</div></div>'}
 sessionContent+='<div class="mxi-session-grid"><div class="mxi-session-user"><div class="mxi-session-user-value">'+(i.user||"Anonymous")+'</div><div class="mxi-session-user-label">User</div></div><div class="mxi-session-small"><div class="mxi-session-small-value" style="color:'+(i.offline?"#FF7A50":"#2D9C5E")+'">'+(i.offline?"Offline":"Online")+'</div><div class="mxi-session-small-label">Status</div></div><div class="mxi-session-small"><div class="mxi-session-small-value" style="color:'+(i.guest?"#FFB800":"#9A9A9A")+'">'+(i.guest?"Yes":"No")+'</div><div class="mxi-session-small-label">Guest</div></div></div>';
 
-var plugContent='';
-if(i.uniquePluggableWidgets.length){plugContent='<div class="mxi-tags">';i.uniquePluggableWidgets.forEach(function(w){var isMkt=i.marketplaceWidgets.indexOf(w)>-1;plugContent+=tag(w,isMkt?"#dcfce7":"#f3f4f6",isMkt?"#166534":"#374151")});plugContent+='</div><div style="font-size:11px;color:'+x+';margin-top:8px">✓ Green = Marketplace widget</div>'}else{plugContent='<span style="color:'+x+'">None detected</span>'}
+/* v0.2.66 — Pluggable Widgets section removed. The page-filter heuristic
+ * was never reliable enough to be useful, and as the user pointed out:
+ * if you built the app, you already know what widgets you use. Removing
+ * the section keeps the inspector focused on insights the dev doesn't
+ * already have from memory. */
 
-var a11yScoreColor=i.a11y.score>=80?gr:i.a11y.score>=60?k:m;
-var a11yBadgeBg=i.a11y.score>=80?"rgba(45,156,94,.2);color:#2D9C5E":i.a11y.score>=60?"rgba(255,184,0,.2);color:#FFB800":"rgba(255,90,90,.2);color:#FF5A5A";
+/* v0.2.61 — color by WCAG conformance level, not raw score:
+ *   AAA / AA  → white (target met, near-unreachable bonus for AAA)
+ *   A         → yellow (minimum only — improvement needed)
+ *   Partial   → red (failing)
+ *   Needs Work → red (failing)
+ * Accessibility is critical (EU EAA in force since June 2025 for
+ * EU-facing products) so anything below AA gets visually flagged. */
+var __wl=i.a11y.wcagLevel;
+var a11yScoreColor=(__wl==="AAA Compliant"||__wl==="AA Compliant")?h:(__wl==="A Compliant"?k:m);
+var a11yBadgeBg=(__wl==="AAA Compliant"||__wl==="AA Compliant")?"rgba(255,255,255,.08);color:#FFFFFF":(__wl==="A Compliant"?"rgba(255,184,0,.2);color:#FFB800":"rgba(255,90,90,.2);color:#FF5A5A");
 var isMobile=window.innerWidth<=1024;
-var a11yContent='<div class="mxi-a11y-top"><div class="mxi-a11y-score-wrap"><span class="mxi-a11y-score" style="color:'+a11yScoreColor+'">'+i.a11y.score+'</span><span class="mxi-a11y-label">/100</span></div><span class="mxi-a11y-badge" style="background:'+a11yBadgeBg+'">'+i.a11y.wcagLevel+'</span></div><div class="mxi-metrics mxi-metrics-3" style="margin-top:12px">'+metric("Missing Alt",i.a11y.missingAltText+"/"+i.a11y.totalImages,i.a11y.missingAltText?m:gr,"altText")+metric("Missing Labels",i.a11y.missingLabels+"/"+i.a11y.totalFormFields,i.a11y.missingLabels?m:gr,"formLabels")+metric("Contrast",i.a11y.contrastIssues,i.a11y.contrastIssues?m:gr,"contrast")+'</div><div class="mxi-metrics mxi-metrics-3" style="margin-top:8px">'+metric("Small Fonts",i.a11y.smallFontSize,i.a11y.smallFontSize?k:gr,"smallFont")+metric("Headings",(i.a11y.missingH1?1:0)+i.a11y.headingSkips,i.a11y.headingSkips||i.a11y.missingH1?k:gr,"headings")+metric("Empty Links",i.a11y.emptyLinks,i.a11y.emptyLinks?k:gr,"emptyLinks")+'</div>'+(isMobile&&i.a11y.smallTouchTargets>0?'<div style="margin-top:8px;padding:8px 10px;background:rgba(255,184,0,.15);border:1px solid rgba(255,184,0,.3);border-radius:8px;font-size:11px;color:#FFB800">📱 '+i.a11y.smallTouchTargets+' small touch targets (<44px)</div>':'')+'<div style="margin-top:10px;font-size:11px;color:'+x+'">ARIA: '+i.a11y.ariaUsage+' • Landmarks: '+i.a11y.landmarks+' • Skip link: '+(i.a11y.hasSkipLink?"✓":"✗")+'</div>'+a11yImpr;
+var a11yContent='<div class="mxi-a11y-top"><div class="mxi-a11y-score-wrap"><span class="mxi-a11y-score" style="color:'+a11yScoreColor+'">'+i.a11y.score+'</span><span class="mxi-a11y-label">/100</span></div><span class="mxi-a11y-badge" style="background:'+a11yBadgeBg+'">'+i.a11y.wcagLevel+'</span></div>'+
+/* Row 1 — core AA blockers (red when non-zero) */
+'<div class="mxi-metrics mxi-metrics-3" style="margin-top:12px">'+
+  highlightMetric("Missing Alt",i.a11y.missingAltText+"/"+i.a11y.totalImages,i.a11y.missingAltText?m:h,"altText","missingAlt","error")+
+  highlightMetric("Missing Labels",i.a11y.missingLabels+"/"+i.a11y.totalFormFields,i.a11y.missingLabels?m:h,"formLabels","missingLabels","error")+
+  highlightMetric("Contrast",i.a11y.contrastIssues,i.a11y.contrastIssues?m:h,"contrast","contrastIssues","error")+
+'</div>'+
+/* Row 2 — WCAG 2.2 additions + AA blockers */
+'<div class="mxi-metrics mxi-metrics-3" style="margin-top:8px">'+
+  highlightMetric("Target Size",i.a11y.targetSizeIssues,i.a11y.targetSizeIssues?m:h,"targetSize","targetSizeIssues","error")+
+  highlightMetric("No A11y Name",i.a11y.noAccessibleName,i.a11y.noAccessibleName?m:h,"accessibleName","noAccessibleName","error")+
+  highlightMetric("IFrame Titles",i.a11y.iframeTitleMissing,i.a11y.iframeTitleMissing?m:h,"iframeTitle","iframeTitleMissing","error")+
+'</div>'+
+/* Row 3 — warnings and non-blocking issues */
+'<div class="mxi-metrics mxi-metrics-3" style="margin-top:8px">'+
+  highlightMetric("Small Fonts",i.a11y.smallFontSize,i.a11y.smallFontSize?k:h,"smallFont","smallFontSize","warning")+
+  highlightMetric("Headings",(i.a11y.missingH1?1:0)+i.a11y.headingSkips,i.a11y.headingSkips||i.a11y.missingH1?k:h,"headings","headingSkips","warning")+
+  highlightMetric("Empty Links",i.a11y.emptyLinks,i.a11y.emptyLinks?k:h,"emptyLinks","emptyLinks","warning")+
+'</div>'+
+/* Row 4 — keyboard / focus (new v0.2.61) */
+'<div class="mxi-metrics mxi-metrics-3" style="margin-top:8px">'+
+  highlightMetric("Focus Visible",i.a11y.focusIssues,i.a11y.focusIssues?k:h,"focusVisible","focusIssues","warning")+
+  metric("Tab Order",i.a11y.positiveTabindex?i.a11y.positiveTabindex+" +":"OK",i.a11y.positiveTabindex?k:h,null)+
+  metric("Duplicate IDs",i.a11y.duplicateIds,i.a11y.duplicateIds?k:h,null)+
+'</div>'+
+(isMobile&&i.a11y.smallTouchTargets>0?'<div style="margin-top:8px;padding:8px 10px;background:rgba(255,184,0,.15);border:1px solid rgba(255,184,0,.3);border-radius:8px;font-size:11px;color:#FFB800;display:flex;align-items:center;gap:6px">'+icon("a11y",11)+' <span>'+i.a11y.smallTouchTargets+' mobile targets <44px (WCAG 2.5.5 AAA)</span></div>':'')+
+'<div style="margin-top:10px;font-size:11px;color:'+x+';display:flex;align-items:center;gap:4px;flex-wrap:wrap">ARIA: '+i.a11y.ariaUsage+' • Landmarks: '+i.a11y.landmarks+' • Skip link: '+(i.a11y.hasSkipLink?icon("check",11):icon("x",11))+' • Main: '+(i.a11y.hasMainLandmark?icon("check",11):icon("x",11))+'</div>'+
+'<div style="margin-top:6px;font-size:10px;color:'+x+';font-style:italic;display:flex;align-items:center;gap:6px">'+icon("info",10)+' <span>EU EAA requires WCAG 2.1 AA for EU-facing products (in force June 28, 2025)</span></div>'+
+a11yImpr;
 
 /* Typography section */
 var typoContent='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div style="font-size:11px;color:'+x+'">PRIMARY FONT</div><button class="mxi-inspect-btn" id="mxi-inspect-toggle" style="background:'+v+';border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:500;color:'+f+';display:flex;align-items:center;gap:6px">'+icon("inspect",14)+' Inspect Mode</button></div><div style="font-size:18px;font-weight:600;color:'+h+';margin-bottom:12px">'+i.typography.primaryFont+'</div><div style="font-size:11px;color:'+x+';margin-bottom:6px">FONTS USED ('+i.typography.fontCount+')</div><div class="mxi-tags" style="margin-bottom:12px">';
-i.typography.fonts.forEach(function(f,idx){typoContent+=tag(f,idx===0?"#dbeafe":"#f3f4f6",idx===0?"#1e40af":"#374151")});
+i.typography.fonts.forEach(function(fn,idx){
+  var isIcon=i.typography.iconFonts&&i.typography.iconFonts[fn];
+  var bg=isIcon?"#fef3c7":(idx===0?"#dbeafe":"#f3f4f6");
+  var fg=isIcon?"#92400e":(idx===0?"#1e40af":"#374151");
+  var label=isIcon?fn+' <span style="font-size:9px;background:'+fg+';color:'+bg+';padding:1px 5px;border-radius:3px;margin-left:4px;font-weight:600;letter-spacing:.3px">ICON</span>':fn;
+  typoContent+='<span class="mxi-tag" style="background:'+bg+';color:'+fg+'">'+label+'</span>';
+});
 typoContent+='</div><div style="font-size:11px;color:'+x+';margin-bottom:6px">SIZES ('+i.typography.sizeCount+' unique)</div><div class="mxi-tags" style="margin-bottom:12px">';
 i.typography.sizes.slice(0,8).forEach(function(s){typoContent+=tag(s)});
 typoContent+='</div><div style="font-size:11px;color:'+x+';margin-bottom:6px">WEIGHTS</div><div class="mxi-tags">';
@@ -956,29 +1784,14 @@ typoContent+='</div>';
 
 /* CSS Analysis section */
 var cssContent='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><div style="font-size:11px;color:'+x+'">OVERVIEW</div><button class="mxi-inspect-btn" id="mxi-css-inspect-toggle" style="background:'+v+';border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:500;color:'+f+';display:flex;align-items:center;gap:6px">'+icon("inspect",14)+' CSS Inspector</button></div>';
-cssContent+='<div class="mxi-metrics mxi-metrics-3" style="margin-bottom:10px">'+metric("Stylesheets",i.css.totalStylesheets)+metric("Rules",i.css.totalRules)+metric("Inline Styles",i.css.inlineStyles,i.css.inlineStyles>20?p:null)+'</div>';
-cssContent+='<div class="mxi-metrics mxi-metrics-3" style="margin-bottom:12px">'+metric("!important",i.css.importantCount,i.css.importantCount>50?m:i.css.importantCount>20?p:null)+metric("CSS Vars",i.css.customProperties,i.css.customProperties>0?gr:null)+metric("Media Q",i.css.mediaQueries)+'</div>';
+cssContent+='<div class="mxi-metrics mxi-metrics-3" style="margin-bottom:10px">'+metric("Stylesheets",i.css.totalStylesheets,null,"cssStylesheets")+metric("Rules",i.css.totalRules,null,"cssRules")+metric("Inline Styles",i.css.inlineStyles,i.css.inlineStyles>20?p:null,"cssInlineStyles")+'</div>';
+cssContent+='<div class="mxi-metrics mxi-metrics-3" style="margin-bottom:12px">'+metric("!important",i.css.importantCount,i.css.importantCount>50?m:i.css.importantCount>20?p:null,"cssImportant")+metric("CSS Vars",i.css.customProperties,i.css.customProperties>0?gr:null,"cssVars")+metric("Media Q",i.css.mediaQueries,null,"cssMediaQ")+'</div>';
 /* Design System Usage */
 cssContent+='<div style="font-size:9px;color:'+x+';margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;font-weight:500">DESIGN SYSTEM USAGE</div>';
 cssContent+='<div style="display:flex;gap:8px;margin-bottom:12px"><div style="flex:1;background:'+v+';border-radius:8px;padding:10px;text-align:center"><div style="font-size:16px;font-weight:600;color:'+gr+'">'+i.css.atlasClasses+'</div><div style="font-size:9px;color:'+x+';margin-top:2px">Atlas/Framework</div></div><div style="flex:1;background:'+v+';border-radius:8px;padding:10px;text-align:center"><div style="font-size:16px;font-weight:600;color:'+(i.css.customClasses>i.css.atlasClasses?p:f)+'">'+i.css.customClasses+'</div><div style="font-size:9px;color:'+x+';margin-top:2px">Custom Classes</div></div></div>';
-/* Deep Selectors Warning */
-if(i.css.deepSelectors&&i.css.deepSelectors.length>0){
-cssContent+='<div style="font-size:9px;color:'+p+';margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;font-weight:500">⚠️ DEEP SELECTORS ('+i.css.deepSelectors.length+')</div><div style="margin-bottom:10px">';
-i.css.deepSelectors.slice(0,3).forEach(function(d){
-var selectorDisplay=d.selector.length>45?d.selector.substring(0,45)+"...":d.selector;
-cssContent+='<div style="padding:6px 8px;background:'+y+';border-radius:4px;margin-bottom:4px;font-family:monospace;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.selector)+'"><span style="color:'+p+';font-weight:600">'+d.depth+' lvl:</span> <span style="color:'+f+'">'+esc(selectorDisplay)+'</span></div>';
-});
-cssContent+='<div style="font-size:10px;color:'+x+';margin-top:4px">Selectors with 4+ levels of nesting can be hard to override and maintain.</div></div>';
-}
-/* High Specificity Warning */
-if(i.css.highSpecificity&&i.css.highSpecificity.length>0){
-cssContent+='<div style="font-size:9px;color:'+k+';margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;font-weight:500">HIGH SPECIFICITY ('+i.css.highSpecificity.length+')</div><div style="margin-bottom:10px">';
-i.css.highSpecificity.slice(0,3).forEach(function(s){
-var selectorDisplay=s.selector.length>35?s.selector.substring(0,35)+"...":s.selector;
-cssContent+='<div style="padding:6px 8px;background:'+y+';border-radius:4px;margin-bottom:4px;font-family:monospace;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(s.selector)+'"><span style="color:'+k+';font-weight:600">'+s.score+':</span> <span style="color:'+f+'">'+esc(selectorDisplay)+'</span></div>';
-});
-cssContent+='<div style="font-size:10px;color:'+x+';margin-top:4px">Score = IDs×100 + Classes×10 + Elements. High specificity makes overriding difficult.</div></div>';
-}
+/* v0.2.48 — Deep Selectors and High Specificity sections removed. They
+ * reported on compiled theme CSS (theme.compiled.css), which every Mendix
+ * app has. The findings were theme-author concerns, not page-level insights. */
 /* Largest Stylesheets */
 if(i.css.stylesheetSizes&&i.css.stylesheetSizes.length>0){
 cssContent+='<div style="font-size:9px;color:'+x+';margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;font-weight:500">LARGEST STYLESHEETS</div><div style="margin-bottom:10px">';
@@ -988,18 +1801,34 @@ cssContent+='<div style="display:flex;justify-content:space-between;padding:6px 
 });
 cssContent+='</div>';
 }
-cssContent+='<div style="margin-top:10px;padding:10px 12px;background:'+y+';border-radius:8px;font-size:11px;color:'+x+';border:1px solid '+b+'">💡 <strong style="color:'+f+'">Tip:</strong> Use CSS Inspector to hover and see classes, styles, padding & margin.</div>';
+cssContent+='<div style="margin-top:10px;padding:10px 12px;background:'+y+';border-radius:8px;font-size:11px;color:'+x+';border:1px solid '+b+'">'+icon("info",10)+' <strong style="color:'+f+';margin-left:4px">Tip:</strong> Use CSS Inspector to hover and see classes, styles, padding & margin.</div>';
 
 /* Security Section Content */
 var securityContent='';
 var sec=i.security;
-var secIssueCount=sec.exposedConstants.length+sec.sensitiveEntities.length+sec.revealingMicroflows.length+sec.formIssues.length+sec.urlParams.length+sec.cveWarnings.length+sec.mixedContent.length+sec.localStorageSensitive.length+(sec.insecureProtocol?1:0);
+var secIssueCount=sec.exposedConstants.length+sec.formIssues.length+sec.urlParams.length+sec.cveWarnings.length+sec.mixedContent.length+sec.localStorageSensitive.length+(sec.insecureProtocol?1:0);
+/* v0.2.43 — include extended findings in the issue count */
+if(sec.mendixConstants)secIssueCount+=(sec.mendixConstants.secrets||0)+(sec.mendixConstants.sensitive||0);
+if(sec.demoUsers&&sec.demoUsers.count)secIssueCount+=sec.demoUsers.count;
+if(sec.anonymous&&sec.anonymous.anonymous)secIssueCount+=1;
+if(sec.devMode&&sec.devMode.confidence==="high")secIssueCount+=1;
+if(sec.writableSensitive&&sec.writableSensitive.withWrites)secIssueCount+=sec.writableSensitive.withWrites;
 var secScoreColor=sec.score>=80?gr:sec.score>=60?k:m;
 
 securityContent+='<div class="mxi-a11y-top" style="margin-bottom:12px"><div class="mxi-a11y-score-wrap"><span class="mxi-a11y-score" style="color:'+secScoreColor+'">'+sec.score+'</span><span class="mxi-a11y-label">/100</span></div><span class="mxi-a11y-badge" style="background:'+(sec.score>=80?"rgba(45,156,94,.2);color:#2D9C5E":sec.score>=60?"rgba(255,184,0,.2);color:#FFB800":"rgba(255,90,90,.2);color:#FF5A5A")+'">'+(sec.score>=80?"Good":sec.score>=60?"Fair":"At Risk")+'</span></div>';
 
-securityContent+='<div class="mxi-metrics mxi-metrics-3" style="margin-bottom:10px">'+metric("Constants",sec.exposedConstants.length,sec.exposedConstants.length>0?p:null,"secConstants")+metric("Entities",sec.sensitiveEntities.length,sec.sensitiveEntities.length>0?k:null,"secEntities")+metric("Actions",sec.revealingMicroflows.length,sec.revealingMicroflows.length>0?bl:null,"secMicroflows")+'</div>';
-securityContent+='<div class="mxi-metrics mxi-metrics-3" style="margin-bottom:10px">'+metric("Forms",sec.formIssues.length,sec.formIssues.length>0?p:null,"secForms")+metric("URL Params",sec.urlParams.length,sec.urlParams.length>0?m:null,"secUrl")+metric("CVEs",sec.cveWarnings.length,sec.cveWarnings.length>0?m:null,"secCve")+'</div>';
+/* v0.2.45 — CONSTANTS metric now shows TOTAL count (Mendix constants + legacy
+ * window.* scan). Color reflects the worst risk level present:
+ *   red if any secrets, yellow if any sensitive-entropy, grey if all plain. */
+var mcSecrets=(sec.mendixConstants&&sec.mendixConstants.secrets)||0;
+var mcSensitive=(sec.mendixConstants&&sec.mendixConstants.sensitive)||0;
+var mcTotal=(sec.mendixConstants&&sec.mendixConstants.count)||0;
+var constantsTotal=sec.exposedConstants.length+mcTotal;
+var constantsColor=(mcSecrets>0||sec.exposedConstants.length>0)?m:(mcSensitive>0?k:null);
+/* v0.2.46 — Entities and Actions metrics dropped. Both were heuristic
+ * name-scans that produced low-signal findings. Remaining 4 metrics in a
+ * single row: Constants (Mendix + legacy), Forms, URL Params, CVEs. */
+securityContent+='<div class="mxi-metrics" style="grid-template-columns:repeat(4,1fr);margin-bottom:10px">'+metric("Constants",constantsTotal,constantsColor,"secConstants")+metric("Forms",sec.formIssues.length,sec.formIssues.length>0?p:null,"secForms")+metric("URL Params",sec.urlParams.length,sec.urlParams.length>0?m:null,"secUrl")+metric("CVEs",sec.cveWarnings.length,sec.cveWarnings.length>0?m:null,"secCve")+'</div>';
 
 /* Protocol Warning */
 if(sec.insecureProtocol){
@@ -1009,7 +1838,7 @@ securityContent+='<div style="margin-bottom:10px;padding:10px 12px;background:rg
 /* CVE Warnings */
 if(sec.cveWarnings.length>0){
 securityContent+='<div style="margin-top:10px;padding:10px 12px;background:rgba(255,90,90,.1);border:1px solid rgba(255,90,90,.3);border-radius:10px">';
-securityContent+='<div style="font-size:10px;color:#FF5A5A;font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">⚠️ KNOWN VULNERABILITIES</div>';
+securityContent+='<div style="font-size:10px;color:#FF5A5A;font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;display:inline-flex;align-items:center;gap:6px">'+icon("warning",10)+' KNOWN VULNERABILITIES</div>';
 sec.cveWarnings.forEach(function(cve){
 securityContent+='<div style="font-size:11px;margin-bottom:6px;color:'+f+'"><strong style="color:#FF8A8A">'+cve.id+'</strong> <span style="color:'+x+'">('+cve.severity+')</span><br>'+cve.desc+'</div>';
 });
@@ -1019,7 +1848,7 @@ securityContent+='<div style="font-size:10px;color:'+x+';margin-top:8px">Update 
 /* Mixed Content Warning */
 if(sec.mixedContent.length>0){
 securityContent+='<div style="margin-top:10px;padding:10px 12px;background:rgba(255,122,80,.1);border:1px solid rgba(255,122,80,.3);border-radius:10px">';
-securityContent+='<div style="font-size:10px;color:#FF7A50;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">⚠️ MIXED CONTENT</div>';
+securityContent+='<div style="font-size:10px;color:#FF7A50;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;display:inline-flex;align-items:center;gap:6px">'+icon("warning",10)+' MIXED CONTENT</div>';
 securityContent+='<div style="font-size:11px;color:'+f+'">HTTP resources on HTTPS page: '+sec.mixedContent.join(", ")+'</div></div>';
 }
 
@@ -1032,12 +1861,14 @@ sec.localStorageSensitive.forEach(function(k){securityContent+=tag(k,"rgba(255,1
 securityContent+='</div></div>';
 }
 
-/* External Scripts */
+/* External Scripts — v0.2.49: explanation text + subtle panel. Tags show full
+ * hostnames so you can identify who owns them (analytics, CDN, etc.). */
 if(sec.externalScripts.length>0){
-securityContent+='<div style="margin-top:10px">';
-securityContent+='<div style="font-size:10px;color:'+x+';font-weight:500;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">EXTERNAL SCRIPTS ('+sec.externalScripts.length+')</div>';
+securityContent+='<div style="margin-top:10px;padding:10px 12px;background:'+v+';border-radius:10px">';
+securityContent+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div style="font-size:10px;color:'+f+';font-weight:600;text-transform:uppercase;letter-spacing:.5px">External Scripts ('+sec.externalScripts.length+')</div></div>';
+securityContent+='<div style="font-size:11px;color:'+x+';margin-bottom:8px;line-height:1.4">Scripts loaded from domains other than this app. Expected for analytics, tag managers, or CDN-hosted libraries; unexpected entries may warrant review.</div>';
 securityContent+='<div class="mxi-tags">';
-sec.externalScripts.forEach(function(h){securityContent+=tag(h,"rgba(59,153,252,.1)","#3B99FC")});
+sec.externalScripts.forEach(function(host){securityContent+='<span class="mxi-tag" style="background:rgba(59,153,252,.1);color:#3B99FC;font-family:monospace;font-size:10px">'+esc(host)+'</span>'});
 securityContent+='</div></div>';
 }
 
@@ -1051,27 +1882,8 @@ securityContent+='<div style="font-size:11px;margin-bottom:4px;color:'+f+'"><cod
 securityContent+='</div>';
 }
 
-/* Sensitive Entities */
-if(sec.sensitiveEntities.length>0){
-securityContent+='<div style="margin-top:10px">';
-securityContent+='<div style="font-size:10px;color:'+x+';font-weight:500;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">SENSITIVE ENTITY NAMES</div>';
-securityContent+='<div class="mxi-tags">';
-sec.sensitiveEntities.slice(0,8).forEach(function(e){
-securityContent+=tag(e.name,"rgba(255,184,0,.15)","#FFB800");
-});
-securityContent+='</div></div>';
-}
-
-/* Revealing Microflows */
-if(sec.revealingMicroflows.length>0){
-securityContent+='<div style="margin-top:10px">';
-securityContent+='<div style="font-size:10px;color:'+x+';font-weight:500;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">REVEALING ACTION NAMES</div>';
-securityContent+='<div class="mxi-tags">';
-sec.revealingMicroflows.slice(0,8).forEach(function(e){
-securityContent+=tag(e.name,"rgba(59,153,252,.15)","#3B99FC");
-});
-securityContent+='</div></div>';
-}
+/* v0.2.46 — Sensitive Entities and Revealing Microflows render blocks removed
+ * (heuristic keyword matches against DOM class names; low signal, high noise). */
 
 /* Form Issues */
 if(sec.formIssues.length>0){
@@ -1094,36 +1906,761 @@ securityContent+='</div>';
 }
 
 if(secIssueCount===0&&!sec.insecureProtocol){
-securityContent+='<div style="margin-top:10px;padding:12px;background:rgba(45,156,94,.1);border:1px solid rgba(45,156,94,.2);border-radius:10px;text-align:center"><div style="font-size:24px;margin-bottom:6px;color:#2D9C5E">✓</div><div style="font-size:12px;color:#2D9C5E;font-weight:500">No security issues detected</div><div style="font-size:10px;color:'+x+';margin-top:4px">Page passes extended security checks</div></div>';
+securityContent+='<div style="margin-top:10px;padding:12px;background:rgba(45,156,94,.1);border:1px solid rgba(45,156,94,.2);border-radius:10px;text-align:center"><div style="margin-bottom:6px;color:#2D9C5E;display:flex;justify-content:center">'+icon("check",24)+'</div><div style="font-size:12px;color:#2D9C5E;font-weight:500">No security issues detected</div><div style="font-size:10px;color:'+x+';margin-top:4px">Page passes extended security checks</div></div>';
 }
+
+/* ===== v0.2.43 — extended security blocks ===== */
+
+/* Anonymous session banner */
+if(sec.anonymous&&sec.anonymous.anonymous){
+securityContent+='<div style="margin-top:10px;padding:10px 12px;background:rgba(255,184,0,.1);border:1px solid rgba(255,184,0,.3);border-radius:10px">';
+securityContent+='<div style="font-size:11px;color:#FFB800;font-weight:500">🕵 Anonymous session active</div>';
+securityContent+='<div style="font-size:10px;color:'+x+';margin-top:4px">Anonymous access is enabled on this app. Confirm this is intentional — if not, disable it in Studio Pro under App Security.</div></div>';
+}
+
+/* Mendix Constants (replaces/augments the old window.* scan) — v0.2.44: show ALL constants */
+if(sec.mendixConstants&&sec.mendixConstants.available&&sec.mendixConstants.count>0){
+var mc=sec.mendixConstants;
+var secretsHi=mc.secrets>0;
+var sensHi=mc.sensitive>0;
+var plainCount=mc.count-mc.secrets-mc.sensitive;
+/* v0.2.49 — When all constants are plain (no secrets, no sensitive), render
+ * in the same neutral panel style as other Security subsections. Colored
+ * border/bg is reserved for actual findings so it means something. */
+var cBg=secretsHi?'rgba(255,90,90,.08)':sensHi?'rgba(255,184,0,.08)':v;
+var cBr=secretsHi?'1px solid rgba(255,90,90,.25)':sensHi?'1px solid rgba(255,184,0,.25)':'none';
+var cLbl=secretsHi?'#FF5A5A':sensHi?'#FFB800':f;
+securityContent+='<div style="margin-top:10px;padding:10px 12px;background:'+cBg+';'+(cBr!=='none'?'border:'+cBr+';':'')+'border-radius:10px">';
+securityContent+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+securityContent+='<div style="font-size:10px;color:'+cLbl+';font-weight:600;text-transform:uppercase;letter-spacing:.5px">Mendix Constants ('+mc.count+')</div>';
+if(secretsHi||sensHi){
+securityContent+='<div style="font-size:10px;color:'+cLbl+'">'+(secretsHi?mc.secrets+' secret':'')+(secretsHi&&sensHi?' · ':'')+(sensHi?mc.sensitive+' sensitive':'')+(plainCount>0?' · '+plainCount+' plain':'')+'</div>';
+}
+securityContent+='</div>';
+/* v0.2.45 — Plain-constant rows use a clean 3-column grid (name · type · preview).
+ * Previous version had a background'd <code> that rendered as an empty grey bar
+ * when the value was empty — which is what most Mendix app-level plain
+ * constants are. Now: no background on empty values, grid keeps alignment. */
+mc.items.forEach(function(c){
+if(c.level==='plain'){
+  var shortPrev=c.rawValue.length>40?c.rawValue.slice(0,37)+'…':c.rawValue;
+  /* v0.2.53 — rebalanced grid columns. Previous layout was
+   * `minmax(0,1fr) auto minmax(0,1fr)` which gave the name only half the
+   * row width and truncated aggressively even when the value column was
+   * empty. New layout gives the name column flexible full width and lets
+   * the value column size to its content (usually the italic "empty" tag). */
+  securityContent+='<div style="display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;margin-bottom:3px;padding:4px 8px;background:'+y+';border-radius:5px;opacity:.8">';
+  securityContent+='<code style="font-size:10px;color:'+h+';background:'+w+';padding:2px 6px;border-radius:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">'+esc(c.name)+'</code>';
+  securityContent+='<span style="font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:.3px">'+(c.dataType?esc(c.dataType):'')+'</span>';
+  if(shortPrev){
+    securityContent+='<code style="font-size:10px;color:'+f+';white-space:nowrap;text-align:right;max-width:160px;overflow:hidden;text-overflow:ellipsis">'+esc(shortPrev)+'</code>';
+  } else {
+    securityContent+='<span style="font-size:10px;color:'+x+';font-style:italic;text-align:right">empty</span>';
+  }
+  securityContent+='</div>';
+} else {
+  var pillBg=c.level==='secret'?'rgba(255,90,90,.15)':'rgba(255,184,0,.15)';
+  var pillFg=c.level==='secret'?'#FF5A5A':'#FFB800';
+  var pillTxt=c.level==='secret'?'SECRET':'SENSITIVE';
+  var safeVal=window.__MxSecurity?window.__MxSecurity.redactValue(c.rawValue):'••••';
+  securityContent+='<div class="mxi-secret-row" data-constant-name="'+esc(c.name)+'" style="margin-bottom:6px;padding:6px 8px;background:'+y+';border-radius:6px">';
+  securityContent+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">';
+  securityContent+='<code style="font-size:10px;color:'+h+';background:'+w+';padding:2px 6px;border-radius:4px;word-break:break-all">'+esc(c.name)+'</code>';
+  securityContent+='<span style="font-size:9px;font-weight:600;background:'+pillBg+';color:'+pillFg+';padding:2px 6px;border-radius:3px;letter-spacing:.4px">'+pillTxt+'</span>';
+  if(c.pattern)securityContent+='<span style="font-size:9px;color:'+x+'">'+esc(c.pattern)+'</span>';
+  securityContent+='</div>';
+  securityContent+='<div style="display:flex;align-items:center;gap:6px">';
+  securityContent+='<code class="mxi-secret-value" data-redacted="'+esc(safeVal)+'" data-revealed="'+esc(c.rawValue)+'" style="font-size:10px;color:'+f+';background:'+w+';padding:2px 6px;border-radius:4px;flex:1;word-break:break-all">'+esc(safeVal)+'</code>';
+  securityContent+='<button class="mxi-reveal-btn" data-for="'+esc(c.name)+'" style="font-size:9px;padding:3px 8px;background:'+b+';color:'+f+';border:1px solid '+b+';border-radius:4px;cursor:pointer;font-weight:500">Reveal</button>';
+  securityContent+='</div></div>';
+}
+});
+securityContent+='</div>';
+} else if(sec.mendixConstants&&sec.mendixConstants.available&&sec.mendixConstants.count===0){
+securityContent+='<div style="margin-top:10px;padding:8px 12px;background:rgba(45,156,94,.08);border:1px solid rgba(45,156,94,.2);border-radius:10px;font-size:11px;color:#2D9C5E;display:flex;align-items:center;gap:6px">'+icon("check",11)+' <span>Mendix constants: none exposed</span></div>';
+}
+
+/* Demo Users — v0.2.45: clean 3-col grid, fixed column widths, consistent cell styling */
+if(sec.demoUsers&&sec.demoUsers.available&&sec.demoUsers.count>0){
+var duProd=sec.envIsProd===true;
+var duBg=duProd?'rgba(255,90,90,.15)':'rgba(255,184,0,.1)';
+var duBr=duProd?'2px solid #FF5A5A':'1px solid rgba(255,184,0,.3)';
+var duLbl=duProd?'#FF5A5A':'#FFB800';
+securityContent+='<div style="margin-top:10px;padding:12px;background:'+duBg+';border:'+duBr+';border-radius:10px">';
+if(duProd){
+  securityContent+='<div style="font-size:12px;color:'+duLbl+';font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:8px">'+icon("warning",12)+' <span>CRITICAL · DEMO USERS IN PRODUCTION ('+sec.demoUsers.count+')</span></div>';
+  securityContent+='<div style="font-size:11px;color:#FFCCCC;margin-bottom:10px;line-height:1.5"><strong>Mendix is exposing usernames AND passwords to every visitor of this page.</strong> Anyone can log in as any of these accounts. Disable demo users in Studio Pro (Project Security → Demo Users) and redeploy immediately.</div>';
+} else {
+  securityContent+='<div style="font-size:10px;color:'+duLbl+';font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">DEMO USERS EXPOSED ('+sec.demoUsers.count+')</div>';
+  securityContent+='<div style="font-size:11px;color:'+f+';margin-bottom:10px;line-height:1.5">Mendix publishes demo-user credentials in the client session — fine for development, catastrophic in production. Disable before go-live.</div>';
+}
+/* Fixed 3-col grid with definite min/max widths so nothing squishes or wraps
+ * inside a cell. Click any cell to copy its value. */
+var gridCols='minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr)';
+securityContent+='<div style="display:grid;grid-template-columns:'+gridCols+';gap:3px 10px;font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;padding:0 8px">';
+securityContent+='<span>Username</span><span>Password</span><span style="text-align:right">Roles</span>';
+securityContent+='</div>';
+sec.demoUsers.items.forEach(function(u){
+  var pwCell;
+  if(u.password){
+    var pwColor=duProd?'#FF5A5A':'#FFB800';
+    pwCell='<code class="mxi-demo-copy" data-copy="'+esc(u.password)+'" style="background:'+w+';color:'+pwColor+';padding:3px 6px;border-radius:3px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;min-width:0" title="Click to copy">'+esc(u.password)+'</code>';
+  } else {
+    pwCell='<span style="color:'+x+';font-size:10px;font-style:italic;align-self:center">not exposed</span>';
+  }
+  securityContent+='<div style="display:grid;grid-template-columns:'+gridCols+';gap:3px 10px;align-items:center;margin-bottom:3px;padding:5px 8px;background:'+y+';border-radius:5px">';
+  securityContent+='<code class="mxi-demo-copy" data-copy="'+esc(u.username)+'" style="background:'+w+';color:'+h+';padding:3px 6px;border-radius:3px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;min-width:0" title="Click to copy">'+esc(u.username)+'</code>';
+  securityContent+=pwCell;
+  securityContent+='<span style="font-size:10px;color:'+f+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;text-align:right">'+(u.roles?esc(u.roles):'—')+'</span>';
+  securityContent+='</div>';
+});
+securityContent+='</div>';
+}
+
+/* Writable Sensitive Entities */
+if(sec.writableSensitive&&sec.writableSensitive.available&&sec.writableSensitive.withWrites>0){
+securityContent+='<div style="margin-top:10px;padding:10px 12px;background:rgba(255,90,90,.08);border:1px solid rgba(255,90,90,.25);border-radius:10px">';
+securityContent+='<div style="font-size:10px;color:#FF5A5A;font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;display:inline-flex;align-items:center;gap:6px">'+icon("warning",10)+' WRITABLE SENSITIVE ENTITIES</div>';
+securityContent+='<div style="font-size:11px;color:'+f+';margin-bottom:8px">Current session can write to entities that commonly should be read-only.</div>';
+sec.writableSensitive.items.forEach(function(ws){
+if(!ws.available||ws.writableCount===0)return;
+securityContent+='<div style="margin-bottom:6px">';
+securityContent+='<div style="font-size:11px;color:#FF8A8A;font-weight:500">'+esc(ws.entity)+' <span style="color:'+x+';font-weight:400">('+ws.writableCount+' writable attr)</span></div>';
+if(ws.writableAttrs.length){
+securityContent+='<div style="font-size:10px;color:'+x+';margin-top:2px;margin-left:8px">'+ws.writableAttrs.slice(0,6).map(esc).join(', ')+(ws.writableAttrs.length>6?', …':'')+'</div>';
+}
+securityContent+='</div>';
+});
+securityContent+='</div>';
+}
+
+/* Dev Mode indicators */
+if(sec.devMode&&sec.devMode.available&&sec.devMode.confidence!=='none'){
+var dmBg=sec.devMode.confidence==='high'?'rgba(255,90,90,.08)':'rgba(255,184,0,.08)';
+var dmBr=sec.devMode.confidence==='high'?'rgba(255,90,90,.25)':'rgba(255,184,0,.25)';
+var dmFg=sec.devMode.confidence==='high'?'#FF5A5A':'#FFB800';
+securityContent+='<div style="margin-top:10px;padding:10px 12px;background:'+dmBg+';border:1px solid '+dmBr+';border-radius:10px">';
+securityContent+='<div style="font-size:10px;color:'+dmFg+';font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">DEV MODE INDICATORS ('+sec.devMode.confidence+' confidence)</div>';
+sec.devMode.signals.forEach(function(s){
+securityContent+='<div style="font-size:11px;margin-bottom:3px;color:'+f+'">• <code style="background:'+y+';padding:2px 5px;border-radius:3px;font-size:10px">'+esc(s.source)+'</code>: '+esc(s.value)+'</div>';
+});
+securityContent+='</div>';
+}
+
+/* Endpoint Probe — v0.2.44: auto-runs on section render. Still shows the
+ * 4 requests it made so the user knows what went out. A "Re-probe" link
+ * at the bottom repeats the HEAD requests on demand. */
+securityContent+='<div style="margin-top:12px;padding:10px 12px;background:'+v+';border:1px solid '+b+';border-radius:10px">';
+securityContent+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
+securityContent+='<div style="font-size:10px;color:'+x+';font-weight:600;text-transform:uppercase;letter-spacing:.5px">DOC ENDPOINT PROBE</div>';
+securityContent+='<button id="mxi-probe-endpoints-btn" style="font-size:9px;padding:3px 8px;background:'+b+';color:'+f+';border:1px solid '+b+';border-radius:4px;cursor:pointer;font-weight:500">Re-probe</button>';
+securityContent+='</div>';
+securityContent+='<div style="font-size:10px;color:'+x+';margin-bottom:8px">4 HEAD requests to <code style="background:'+y+';padding:1px 4px;border-radius:3px;font-size:10px">/rest-doc/</code>, <code style="background:'+y+';padding:1px 4px;border-radius:3px;font-size:10px">/odata-doc/</code>, <code style="background:'+y+';padding:1px 4px;border-radius:3px;font-size:10px">/ws-doc/</code>, <code style="background:'+y+';padding:1px 4px;border-radius:3px;font-size:10px">/debugger/</code></div>';
+securityContent+='<div id="mxi-probe-endpoints-out"><div style="font-size:11px;color:'+f+';font-style:italic">Probing…</div></div>';
+securityContent+='</div>';
 
 /* MASCOT - REOWN INSPIRED . / LOGO */
 var mascot='<svg viewBox="0 0 52 24" width="52" height="24" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="24" height="24" rx="7" fill="#242424"/><rect x="28" y="0" width="24" height="24" rx="7" fill="#1A1A1A" stroke="#FF7A50" stroke-width="1.5"/><rect x="10" y="10" width="4" height="4" rx="0.5" fill="#fff"/><line x1="37" y1="6" x2="43" y2="18" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>';
 
-var html=css+'<div class="mxi-header" id="mxi-drag-handle"><div class="mxi-header-top"><div class="mxi-logo">'+mascot+'<span class="mxi-title">MxInspector</span></div><div class="mxi-header-buttons"><span class="mxi-badge">'+i.version+'</span><span class="mxi-badge'+(i.client==="React"?" mxi-badge-accent":"")+'">'+i.client+'</span><button class="mxi-icon-btn" id="mxi-info-btn" title="About">'+icon("info",16)+'<div class="mxi-info-tooltip" id="mxi-info-tooltip"><div class="mxi-info-line"><strong>MxInspector</strong> v1.3</div><div class="mxi-info-line">Created with ❤️ by <strong>Tim Maurer</strong></div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px">Free for personal & commercial use.<br>MIT License • Attribution required.</div><a href="https://paypal.me/tapmaurer" target="_blank" class="mxi-coffee-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M80,56V24a8,8,0,0,1,16,0V56a8,8,0,0,1-16,0Zm40,8a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,120,64Zm32,0a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,152,64Zm96,56v8a40,40,0,0,1-37.51,39.91,96.59,96.59,0,0,1-27,40.09H208a8,8,0,0,1,0,16H32a8,8,0,0,1,0-16H56.54A96.3,96.3,0,0,1,24,136V88a8,8,0,0,1,8-8H208A40,40,0,0,1,248,120ZM200,96H40v40a80.27,80.27,0,0,0,45.12,72h69.76A80.27,80.27,0,0,0,200,136Zm32,24a24,24,0,0,0-16-22.62V136a95.78,95.78,0,0,1-1.2,15A24,24,0,0,0,232,128Z"/></svg>Buy me a coffee</a></div></button><button class="mxi-icon-btn" id="mxi-close-btn" title="Close">'+icon("x",16)+'</button></div></div><div class="mxi-env"><span>'+envIcon(i.envType)+' '+i.envType+'</span><span class="mxi-env-url">'+(i.env||location.host)+'</span></div></div><div class="mxi-body"><div class="mxi-score"><div class="mxi-score-circle" style="background:'+scoreColor(i.score)+'">'+i.score+'</div><div class="mxi-score-info"><div class="mxi-score-label">Health: '+scoreLabel+'</div><div class="mxi-score-desc">'+i.warnings.length+' insights • '+i.totalWidgets+' widgets</div></div></div><div class="mxi-page-info"><div class="mxi-page-row"><div class="mxi-page-main"><div class="mxi-page-module">'+i.module+'</div><div style="display:flex;align-items:center"><span class="mxi-page-name" title="'+i.page+'">'+i.page+'</span>'+(i.popup?'<span class="mxi-page-popup">POPUP</span>':'')+'</div></div><button class="mxi-copy-btn" id="mxi-copy-btn" title="Copy page name">'+icon("copy",14)+'</button></div>'+(i.pageParameters.length||i.dataViewEntities.length?'<div style="margin-top:10px;padding-top:10px;border-top:1px solid '+b+'"><div style="font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;display:flex;align-items:center;gap:6px">'+icon("page",12)+' PAGE PARAMETERS</div><div style="display:flex;flex-wrap:wrap;gap:6px">'+(i.pageParameters.length?i.pageParameters:i.dataViewEntities).map(function(e){return'<span style="background:#2E2E2E;color:#FFFFFF;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:500;border:1px solid #3D3D3D">'+e+'</span>'}).join('')+'</div></div>':'')+'</div>'+
+/* v0.2.42 — meta row under env row: profile (Responsive/PWA), locale, and
+ * translation count. Only rendered if at least one field has a value, so apps
+ * that don't surface this data don't get an empty box. */
+/* v0.2.44 — humanize Mendix locale codes (en_US → English US, nl_NL → Dutch, etc.)
+ * For 'native' locales (language spoken primarily in that one country) we
+ * show just the language name. Variants keep the country suffix. Unknown
+ * codes fall back to Intl.DisplayNames or the raw code. */
+function formatLocale(code){
+  if(!code)return"";
+  var map={
+    "en_US":"English US","en_GB":"English UK","en_AU":"English AU","en_CA":"English CA",
+    "en_NZ":"English NZ","en_IE":"English IE","en_IN":"English IN","en_ZA":"English ZA",
+    "nl_NL":"Dutch","nl_BE":"Dutch BE",
+    "de_DE":"German","de_AT":"German AT","de_CH":"German CH",
+    "fr_FR":"French","fr_CA":"French CA","fr_BE":"French BE","fr_CH":"French CH",
+    "es_ES":"Spanish","es_MX":"Spanish MX","es_AR":"Spanish AR","es_CO":"Spanish CO","es_CL":"Spanish CL",
+    "pt_PT":"Portuguese","pt_BR":"Portuguese BR",
+    "it_IT":"Italian","it_CH":"Italian CH",
+    "ja_JP":"Japanese","ko_KR":"Korean",
+    "zh_CN":"Chinese CN","zh_TW":"Chinese TW","zh_HK":"Chinese HK",
+    "ru_RU":"Russian","pl_PL":"Polish","sv_SE":"Swedish","no_NO":"Norwegian","nb_NO":"Norwegian",
+    "da_DK":"Danish","fi_FI":"Finnish","el_GR":"Greek","tr_TR":"Turkish",
+    "ar_SA":"Arabic SA","ar_EG":"Arabic EG","he_IL":"Hebrew","hi_IN":"Hindi",
+    "th_TH":"Thai","vi_VN":"Vietnamese","cs_CZ":"Czech","hu_HU":"Hungarian",
+    "ro_RO":"Romanian","uk_UA":"Ukrainian","bg_BG":"Bulgarian","hr_HR":"Croatian",
+    "sk_SK":"Slovak","sl_SI":"Slovenian","et_EE":"Estonian","lv_LV":"Latvian","lt_LT":"Lithuanian",
+    "ca_ES":"Catalan","id_ID":"Indonesian","ms_MY":"Malay","fil_PH":"Filipino"
+  };
+  var norm=String(code).replace("-","_");
+  if(map[norm])return map[norm];
+  try{
+    if(typeof Intl!=="undefined"&&Intl.DisplayNames){
+      var dn=new Intl.DisplayNames(["en"],{type:"language"});
+      var parts=norm.split("_");
+      var lang=dn.of(parts[0]);
+      if(lang&&parts[1])return lang+" "+parts[1].toUpperCase();
+      if(lang)return lang;
+    }
+  }catch(e){}
+  return norm;
+}
+
+var metaHtml="";
+if(i.mxProfile.kind||i.mxLocale||(i.mxTranslations&&i.mxTranslations.length)){
+  var pieces=[];
+  if(i.mxProfile.kind){
+    /* v0.2.44 — emoji dropped; "Kind (bold) · Name" */
+    var profileMain=i.mxProfile.name?esc(i.mxProfile.name):esc(i.mxProfile.kind);
+    var profileSub=i.mxProfile.name?esc(i.mxProfile.kind):"";
+    pieces.push('<span class="mxi-meta-pill" title="Mendix profile / device class"><strong>'+profileMain+'</strong>'+(profileSub?' · '+profileSub:'')+'</span>');
+  }
+  if(i.mxLocale){
+    /* v0.2.44 — emoji dropped; "Language(s) (bold) · English US" format */
+    pieces.push('<span class="mxi-meta-pill" title="Default locale of this Mendix session"><strong>Language(s)</strong> · '+esc(formatLocale(i.mxLocale))+'</span>');
+  }
+  if(i.mxTranslations&&i.mxTranslations.length){
+    /* v0.2.44 — emoji dropped; "Translations (bold) · +N" format */
+    pieces.push('<span class="mxi-meta-pill" title="Configured translations on top of the default language"><strong>Translations</strong> · +'+i.mxTranslations.length+'</span>');
+  }
+  metaHtml='<div class="mxi-meta">'+pieces.join("")+'</div>';
+}
+
+
+/* v0.2.71 — Extracted into a named function so the 5s autorefresh can
+ * rebuild ONLY the Data Sources section instead of tearing down the
+ * whole inspector. Closure-captures color tokens, icon/esc helpers, and
+ * the info object `i` — only `dsc` varies per autorefresh tick. */
+function renderDataSourcesHTML(dsc){
+  dsc = dsc || {};
+  var mfs=dsc.microflows||[];
+  var others=dsc.otherActions||[];
+  var ops=dsc.operations||[];          /* v0.2.67 — Mendix 10 runtime ops */
+  var xpath=dsc.xpathRetrieves||0;
+  var assoc=dsc.associationRetrieves||0;
+  var commits=dsc.commits||0;
+  var sessionInits=dsc.sessionInits||0;
+  var totalCalls=mfs.length+ops.length+xpath+assoc;
+  /* Detect which Mendix client protocol is in play — drives the UI copy.
+   * "classic" = Mendix 7-9 (executeaction with microflow names)
+   * "m10"     = Mendix 10 React client (runtimeOperation with opaque opIds)
+   * "mixed"   = some of both (rare — e.g. legacy page embedded in new client) */
+  var protocol=ops.length>0?(mfs.length>0?"mixed":"m10"):"classic";
+  var html='';
+
+  /* If tracker is inactive or caught nothing, fall back to the fiber
+   * counts with a clear note explaining why. */
+  if(!i.perfTrackerActive){
+    html+='<div style="padding:10px 12px;background:rgba(255,184,0,.1);border:1px solid rgba(255,184,0,.25);border-radius:10px;font-size:11px;color:#FFB800;margin-bottom:10px;display:flex;align-items:flex-start;gap:8px">'+icon("warning",14)+' <span>Perf tracker not active — showing DOM-inferred counts. Reload the page with the extension enabled for real-time data source capture.</span></div>';
+    html+='<div class="mxi-metrics mxi-metrics-3">'+metric("Database",i.dataSources.database,null,"datasources")+metric("Microflow",i.dataSources.microflow)+metric("Nanoflow",i.dataSources.nanoflow)+'</div>';
+    return html;
+  }
+  if(totalCalls===0){
+    html+='<div style="padding:14px;background:'+v+';border-radius:10px;text-align:center;font-size:11px;color:'+x+'">No data source calls captured yet.<br><span style="font-size:10px">If you opened the inspector mid-session, reload the page to see what fires on initial load.</span></div>';
+    /* v0.2.65 — When nothing was captured, surface the debug buffer so
+     * we can see WHY. The tracker records sample URLs + body heads for
+     * any request it thought might be a Mendix call. Useful for figuring
+     * out if the endpoint changed (Mendix 10 variants) or the body
+     * structure differs from what the parser expects. */
+    var dbg=i.dsDebug||{};
+    if(dbg.postCount>0||(dbg.sampleUrls&&dbg.sampleUrls.length>0)){
+      html+='<details style="margin-top:10px;background:'+v+';border-radius:10px;padding:10px 12px;font-size:11px">';
+      html+='<summary style="cursor:pointer;color:'+k+';font-weight:500;display:flex;align-items:center;gap:6px">'+icon("crosshair",12)+' <span>Debug: what the tracker saw</span></summary>';
+      html+='<div style="margin-top:10px;color:'+f+';line-height:1.6">';
+      html+='<div>Requests observed: <strong style="color:'+h+'">'+dbg.postCount+'</strong> · Parsed OK: <strong style="color:'+h+'">'+dbg.parsedOk+'</strong> · Parse failed: <strong style="color:'+h+'">'+dbg.parsedFail+'</strong> · Had action field: <strong style="color:'+h+'">'+dbg.hadActionField+'</strong></div>';
+      if(dbg.sampleUrls&&dbg.sampleUrls.length){
+        html+='<div style="margin-top:8px"><strong style="color:'+h+'">URL patterns:</strong></div>';
+        html+='<ul style="margin:4px 0 0 0;padding-left:16px;color:#B8B8B8;font-family:\'SF Mono\',Monaco,Consolas,monospace;font-size:10.5px">';
+        dbg.sampleUrls.forEach(function(u){ html+='<li style="margin-bottom:2px;word-break:break-all">'+esc(u)+'</li>'; });
+        html+='</ul>';
+      }
+      if(dbg.unknownActionTypes&&dbg.unknownActionTypes.length){
+        html+='<div style="margin-top:8px"><strong style="color:'+h+'">Unknown action types (seen but not classified):</strong></div>';
+        html+='<ul style="margin:4px 0 0 0;padding-left:16px;color:#B8B8B8;font-size:10.5px">';
+        dbg.unknownActionTypes.forEach(function(u){ html+='<li style="margin-bottom:2px">'+esc(u.type)+' · ×'+u.count+'</li>'; });
+        html+='</ul>';
+      }
+      if(dbg.sampleBodies&&dbg.sampleBodies.length){
+        html+='<div style="margin-top:8px"><strong style="color:'+h+'">Body samples (first 300 chars):</strong></div>';
+        dbg.sampleBodies.forEach(function(bod,idx){
+          html+='<div style="margin-top:6px;padding:8px 10px;background:#0A0A0A;border-radius:6px;font-family:\'SF Mono\',Monaco,Consolas,monospace;font-size:10px;color:#B8B8B8;word-break:break-all;white-space:pre-wrap;max-height:140px;overflow:auto">'+esc(bod)+'</div>';
+        });
+      }
+      html+='<div style="margin-top:10px;font-size:10px;color:'+x+';font-style:italic">If you see a Mendix-looking endpoint or action type here that the tracker isn\'t classifying, share a screenshot — we\'ll widen the parser.</div>';
+      html+='</div></details>';
+    }
+    return html;
+  }
+  /* v0.2.71 — Blue Mendix 10 banner removed; its content is covered by
+   * the info-button tooltip in this section's header (set from the
+   * section() call below). <details> "What am I looking at?" explainer
+   * also removed; same content moved to that tooltip. Scope-note emoji
+   * replaced with a Phosphor page icon. */
+  var navNum=dsc.navigationNumber||0;
+  html+='<div style="margin-bottom:10px;font-size:10px;color:'+x+';font-style:italic;display:flex;align-items:center;gap:6px">'+icon("page",10)+'<span>Current page only · resets on navigation'+(navNum>1?' (nav #'+navNum+')':'')+'</span></div>';
+
+  /* ===== Classic protocol — DS_ microflow list ===== */
+  if(mfs.length>0){
+    html+='<div style="margin-top:14px;padding-top:10px;border-top:1px solid '+b+'">'+
+          '<div style="font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;font-weight:500;display:flex;align-items:center;justify-content:space-between">'+
+          '<span>Microflow Data Sources</span>'+
+          '<span style="color:'+f+';text-transform:none;letter-spacing:0;font-weight:400">'+mfs.length+' unique · '+mfs.reduce(function(a,x){return a+x.count},0)+' call'+(mfs.reduce(function(a,x){return a+x.count},0)===1?'':'s')+'</span>'+
+          '</div>';
+    html+='<div class="mxi-ds-list">';
+    mfs.slice(0,25).forEach(function(mf){
+      var nameParts=mf.name.split('.');
+      var modName=nameParts.length>1?nameParts[0]:'';
+      var shortName=nameParts[nameParts.length-1]||mf.name;
+      var badgeClass=mf.count>5?'mxi-ds-count-hi':(mf.count>1?'mxi-ds-count-med':'mxi-ds-count-lo');
+      var avgMs=mf.count>0?Math.round(mf.totalDuration/mf.count):0;
+      var durStr=avgMs>0?(avgMs<1e3?avgMs+'ms':(avgMs/1e3).toFixed(2)+'s'):'';
+      html+='<div class="mxi-ds-row" data-ds-name="'+esc(mf.name)+'">'+
+              '<div class="mxi-ds-name-wrap">'+
+                (modName?'<span class="mxi-ds-mod">'+esc(modName)+'</span>':'')+
+                '<span class="mxi-ds-name">'+esc(shortName)+'</span>'+
+              '</div>'+
+              '<div class="mxi-ds-meta">'+
+                (durStr?'<span class="mxi-ds-dur" title="Average duration per call">'+durStr+'</span>':'')+
+                '<span class="mxi-ds-count '+badgeClass+'" title="Call count on this page load">×'+mf.count+'</span>'+
+                '<button class="mxi-ds-copy" type="button" title="Copy full name to clipboard" data-ds-copy="'+esc(mf.name)+'">'+icon("copy",11)+'</button>'+
+              '</div>'+
+            '</div>';
+    });
+    if(mfs.length>25){
+      html+='<div style="font-size:10px;color:'+x+';text-align:center;padding:6px 0;font-style:italic">…and '+(mfs.length-25)+' more</div>';
+    }
+    html+='</div></div>';
+  }
+
+  /* ===== Mendix 10 protocol — operationId list ===== */
+  if(ops.length>0){
+    html+='<div style="margin-top:14px;padding-top:10px;border-top:1px solid '+b+'">'+
+          '<div style="font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;font-weight:500;display:flex;align-items:center;justify-content:space-between">'+
+          '<span>Runtime Operations</span>'+
+          '<span style="color:'+f+';text-transform:none;letter-spacing:0;font-weight:400">'+ops.length+' unique · '+ops.reduce(function(a,x){return a+x.count},0)+' call'+(ops.reduce(function(a,x){return a+x.count},0)===1?'':'s')+'</span>'+
+          '</div>';
+    html+='<div class="mxi-ds-list">';
+    ops.slice(0,25).forEach(function(op){
+      var badgeClass=op.count>5?'mxi-ds-count-hi':(op.count>1?'mxi-ds-count-med':'mxi-ds-count-lo');
+      var avgMs=op.count>0?Math.round(op.totalDuration/op.count):0;
+      var durStr=avgMs>0?(avgMs<1e3?avgMs+'ms':(avgMs/1e3).toFixed(2)+'s'):'';
+      /* Shape badge — paints the "list ×50 sorted" kind of summary so
+       * the user has context even without a name. */
+      var shapeHtml=op.shape?'<span class="mxi-ds-shape" title="Inferred from options payload">'+esc(op.shape)+'</span>':'';
+      var writeFlag=op.hasChanges?'<span class="mxi-ds-write" title="This operation also carried changed objects — it writes data">'+icon("edit",11)+'</span>':'';
+      /* v0.2.69 — full operationId shown (no truncation). The ID wraps
+       * via word-break to handle long hashes without hiding information. */
+      html+='<div class="mxi-ds-row" data-op-id="'+esc(op.opId)+'">'+
+              '<div class="mxi-ds-name-wrap">'+
+                '<span class="mxi-ds-name mxi-ds-name-opid" title="'+esc(op.opId)+'">'+esc(op.opId)+'</span>'+
+                shapeHtml+
+                writeFlag+
+              '</div>'+
+              '<div class="mxi-ds-meta">'+
+                (durStr?'<span class="mxi-ds-dur" title="Average duration per call">'+durStr+'</span>':'')+
+                '<span class="mxi-ds-count '+badgeClass+'" title="Call count on this page load">×'+op.count+'</span>'+
+                '<button class="mxi-ds-copy" type="button" title="Copy operationId" data-ds-copy="'+esc(op.opId)+'">'+icon("copy",11)+'</button>'+
+              '</div>'+
+            '</div>';
+    });
+    if(ops.length>25){
+      html+='<div style="font-size:10px;color:'+x+';text-align:center;padding:6px 0;font-style:italic">…and '+(ops.length-25)+' more</div>';
+    }
+    html+='</div></div>';
+  }
+
+  /* ===== Non-DS microflow actions (usually user-triggered) ===== */
+  if(others.length>0){
+    html+='<div style="margin-top:12px;padding-top:10px;border-top:1px solid '+b+'">'+
+          '<div style="font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;font-weight:500">Other Actions ('+others.length+')</div>'+
+          '<div style="font-size:10px;color:'+x+';font-style:italic;margin-bottom:8px">Microflows without DS_ prefix — usually user-triggered onClick actions</div>'+
+          '<div class="mxi-ds-list">';
+    others.slice(0,10).forEach(function(mf){
+      var nameParts=mf.name.split('.');
+      var shortName=nameParts[nameParts.length-1]||mf.name;
+      html+='<div class="mxi-ds-row mxi-ds-row-subtle">'+
+              '<span class="mxi-ds-name" style="font-weight:400">'+esc(shortName)+'</span>'+
+              '<span class="mxi-ds-count mxi-ds-count-lo">×'+mf.count+'</span>'+
+            '</div>';
+    });
+    html+='</div></div>';
+  }
+
+  /* ===== Footer: commits/updates (writes) ===== */
+  if(commits>0){
+    html+='<div style="margin-top:12px;padding:8px 12px;background:rgba(255,184,0,.08);border:1px solid rgba(255,184,0,.2);border-radius:8px;font-size:11px;color:#FFB800;display:flex;align-items:center;gap:6px">'+icon("edit",11)+' <span>'+commits+' commit/update call'+(commits===1?'':'s')+' during page load — page is writing data, not just reading.</span></div>';
+  }
+
+  /* ===== Help note ===== */
+  if(protocol==="classic"||protocol==="mixed"){
+    html+='<div style="margin-top:10px;font-size:10px;color:'+x+';font-style:italic;line-height:1.5;display:flex;align-items:flex-start;gap:6px">'+icon("info",10)+' <span>DS_ prefix = Mendix convention for microflows used as data sources. Repeated calls (×2+) usually mean the microflow is called from inside a nested data container — often a performance red flag.</span></div>';
+  } else {
+    html+='<div style="margin-top:10px;font-size:10px;color:'+x+';font-style:italic;line-height:1.5;display:flex;align-items:flex-start;gap:6px">'+icon("info",10)+' <span>In Mendix 10 the React client uses opaque operationIds. Same ID firing multiple times = same operation called repeatedly — the classic nested-data-source fingerprint. Shapes like "list ×50 sorted filtered" are inferred from the options payload each call carries.</span></div>';
+  }
+
+  return html;
+}
+
+var html=css+'<div class="mxi-header" id="mxi-drag-handle"><div class="mxi-header-top"><div class="mxi-logo">'+mascot+'<span class="mxi-title">MxInspector</span></div><div class="mxi-header-buttons"><span class="mxi-badge">'+i.version+'</span><span class="mxi-badge'+(i.client==="React"?" mxi-badge-accent":"")+'">'+i.client+'</span><button class="mxi-icon-btn" id="mxi-info-btn" title="About">'+icon("info",16)+'<div class="mxi-info-tooltip" id="mxi-info-tooltip"><div class="mxi-info-line"><strong>MxInspector</strong> v1.3</div><div class="mxi-info-line">Created with ❤️ by <strong>Tim Maurer</strong></div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px">Free for personal & commercial use.<br>MIT License • Attribution required.</div><a href="https://paypal.me/tapmaurer" target="_blank" class="mxi-coffee-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M80,56V24a8,8,0,0,1,16,0V56a8,8,0,0,1-16,0Zm40,8a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,120,64Zm32,0a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,152,64Zm96,56v8a40,40,0,0,1-37.51,39.91,96.59,96.59,0,0,1-27,40.09H208a8,8,0,0,1,0,16H32a8,8,0,0,1,0-16H56.54A96.3,96.3,0,0,1,24,136V88a8,8,0,0,1,8-8H208A40,40,0,0,1,248,120ZM200,96H40v40a80.27,80.27,0,0,0,45.12,72h69.76A80.27,80.27,0,0,0,200,136Zm32,24a24,24,0,0,0-16-22.62V136a95.78,95.78,0,0,1-1.2,15A24,24,0,0,0,232,128Z"/></svg>Buy me a coffee</a></div></button><button class="mxi-icon-btn" id="mxi-close-btn" title="Close">'+icon("x",16)+'</button></div></div><div class="mxi-env"><span>'+envIcon(i.envType)+' '+i.envType+'</span><span class="mxi-env-url">'+(i.env||location.host)+'</span></div>'+metaHtml+'</div><div class="mxi-body"><div class="mxi-score"><div class="mxi-score-circle" style="background:'+scoreColor(i.score)+'">'+i.score+'</div><div class="mxi-score-info"><div class="mxi-score-label">Health: '+scoreLabel+'</div><div class="mxi-score-desc">'+i.warnings.length+' insights • '+i.totalWidgets+' widgets</div></div><button class="mxi-chip-btn" id="mxi-score-info-btn" title="How is this score calculated?" style="align-self:flex-start;margin:-4px -4px 0 auto">'+icon("info",13)+'<div class="mxi-info-tooltip" id="mxi-score-info-tooltip" style="width:280px"><div class="mxi-info-line"><strong>How is this score calculated?</strong></div><div class="mxi-info-line">Starts at 100. Points are deducted when issues are detected:</div><div class="mxi-info-line">• <strong>Performance</strong> — slow load, high DOM, memory, slow requests</div><div class="mxi-info-line">• <strong>Accessibility</strong> — missing alt text, form labels, contrast</div><div class="mxi-info-line">• <strong>Security</strong> — known CVEs, exposed data, URL/form issues</div><div class="mxi-info-line">• <strong>Nesting</strong> — nested data sources, weighted by load impact</div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px;margin-top:10px">Open the <strong>Insights</strong> section below to see the exact deductions applied to this page.</div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px">90+ Excellent · 80–89 Good · 60–79 Fair · &lt;60 Needs Work</div></div></button></div><div class="mxi-page-info"><div class="mxi-page-row"><div class="mxi-page-main"><div class="mxi-page-module">'+i.module+'</div><div style="display:flex;align-items:center"><span class="mxi-page-name" title="'+i.page+'">'+i.page+'</span>'+(i.popup?'<span class="mxi-page-popup">POPUP</span>':'')+'</div></div><button class="mxi-copy-btn" id="mxi-copy-btn" title="Copy page name">'+icon("copy",14)+'</button></div>'+(i.pageParameters.length||i.dataViewEntities.length?'<div style="margin-top:10px;padding-top:10px;border-top:1px solid '+b+'"><div style="font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;display:flex;align-items:center;gap:6px">'+icon("page",12)+' CONTEXT OBJECTS</div><div style="display:flex;flex-wrap:wrap;gap:6px">'+(i.pageParameters.length?i.pageParameters:i.dataViewEntities).map(function(e){return'<span style="background:#2E2E2E;color:#FFFFFF;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:500;border:1px solid #3D3D3D">'+e+'</span>'}).join('')+'</div></div>':'')+'</div>'+
 (insightsHtml?section("insights","Insights ("+i.warnings.length+")","bulb",insightsHtml,false):"")+
-section("perf","Performance","lightning",'<div style="font-size:9px;color:'+x+';margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;font-weight:500">PAGE LOAD METRICS</div><div class="mxi-metrics">'+metric("Load",o(i.loadTime),i.loadTime>4e3?m:i.loadTime>2e3?p:g,"load")+metric("DOM",i.domNodes,i.domNodes>4e3?m:i.domNodes>2e3?p:g,"dom")+metric("Requests",i.totalRequests,null,"requests")+metric("Memory",i.jsHeap?i.jsHeap+"MB":"-",null,"memory")+'</div><div style="font-size:9px;color:'+x+';margin:12px 0 8px;text-transform:uppercase;letter-spacing:1px;font-weight:500">CORE WEB VITALS</div><div class="mxi-metrics">'+metric("FCP",i.firstContentfulPaint?o(i.firstContentfulPaint):"-",i.firstContentfulPaint>1800?p:null,"fcp")+metric("LCP",i.largestContentfulPaint?o(i.largestContentfulPaint):"-",i.largestContentfulPaint>2500?p:null,"lcp")+metric("TTFB",i.ttfb?o(i.ttfb):"-",i.ttfb>600?p:null)+metric("CLS",i.cls?i.cls.toFixed(3):"-",i.cls>0.1?p:null)+'</div><div style="margin-top:12px;font-size:10px;color:#666;text-align:center">💡 Metrics measured on initial page load</div>',true)+
-section("widgets","Widgets","cube",widgetsContent,false)+
-section("snippets","Snippets ("+i.snippetCount+")","pkg",(i.snippets.length?'<div class="mxi-tags">'+i.snippets.map(function(s){return tag(s,"#dbeafe","#1e40af")}).join("")+"</div>":'<span style="color:'+x+'">None detected</span>'),false)+
-section("actions","Actions","refresh",'<div class="mxi-metrics mxi-metrics-3">'+metric("Microflow",i.microflowActions,i.microflowActions>15?p:null,"microflows")+metric("Nanoflow",i.nanoflowActions,null,"nanoflows")+metric("Other",i.otherActions)+'</div>',false)+
-section("data","Data Sources","db",'<div class="mxi-metrics mxi-metrics-3">'+metric("Database",i.dataSources.database,null,"datasources")+metric("Microflow",i.dataSources.microflow)+metric("Nanoflow",i.dataSources.nanoflow)+'</div>',false)+
-section("pluggable","Pluggable Widgets ("+i.uniquePluggableWidgets.length+")","plug",plugContent,false)+
-section("conditional","Conditional ("+i.conditionalElements+")","eye",'<div class="mxi-metrics mxi-metrics-3">'+metric("Hidden",i.conditionalElements,i.conditionalElements>30?p:null,"conditional")+metric("Forms",i.formFields)+metric("Images",i.images)+"</div>",false)+
-section("tree","Widget Tree","tree",treeHtml,false)+
+section("perf","Performance","lightning",'<div style="font-size:9px;color:'+x+';margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;font-weight:500">PAGE LOAD METRICS</div><div class="mxi-metrics">'+metric("Load",o(i.loadTime),i.loadTime>4e3?m:i.loadTime>2e3?p:g,"load")+metric("DOM",i.domNodes,i.domNodes>4e3?m:i.domNodes>2e3?p:g,"dom")+metric("Requests",i.totalRequests,null,"requests")+metric("Memory",i.jsHeap?i.jsHeap+"MB":"-",null,"memory")+'</div><div style="font-size:9px;color:'+x+';margin:12px 0 8px;text-transform:uppercase;letter-spacing:1px;font-weight:500">CORE WEB VITALS</div><div class="mxi-metrics">'+metric("FCP",i.firstContentfulPaint?o(i.firstContentfulPaint):"-",i.firstContentfulPaint>1800?p:null,"fcp")+metric("LCP",i.largestContentfulPaint?o(i.largestContentfulPaint):"-",i.largestContentfulPaint>2500?p:null,"lcp")+metric("TTFB",i.ttfb?o(i.ttfb):"-",i.ttfb>600?p:null,"ttfb")+metric("CLS",i.cls?i.cls.toFixed(3):"-",i.cls>0.1?p:null,"cls")+'</div><div style="margin-top:12px;font-size:10px;color:#666;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px">'+icon("info",10)+' <span>Metrics measured on initial page load</span></div>',true)+
+section("widgets","Data Containers","cube",widgetsContent,false)+
+/* v0.2.64 — Data Sources rebuilt around runtime call capture. The old
+ * DOM-inferred "Database 7" was misleading because almost everything
+ * comes from the database at some layer. This version reads the actual
+ * /xas/ calls made during page load (captured by perf-tracker at
+ * document_start) and shows what microflows / retrieves actually fired.
+ *
+ * Why this matters: DS_-prefixed microflows used as data sources are
+ * often the performance killers — especially when nested. Seeing
+ * "DS_GetOrderLines_ByOrder called 47 times" on a slow page is gold. */
+/* v0.2.71 — Data Sources section — now a function call + a headerExtra
+ * IIFE that builds the info/refresh buttons on the right side of the
+ * section header. Clicks on those buttons do NOT toggle collapse —
+ * section() bails when the click originated inside .mxi-section-header-extra. */
+section("data","Data Sources","db",renderDataSourcesHTML(i.dataSourceCalls),false,(function(){
+  var _dsc = i.dataSourceCalls || {};
+  var _ops = _dsc.operations || [];
+  var _mfs = _dsc.microflows || [];
+  var proto = _ops.length > 0 ? (_mfs.length > 0 ? "mixed" : "m10") : "classic";
+  var tipHtml = ''+
+    '<div class="mxi-info-line"><strong>Each row = one server call to your Mendix backend.</strong></div>'+
+    '<div class="mxi-info-line"><strong>Operation ID</strong> — unique hash identifying a specific server operation. Same hash = same microflow/retrieve. '+(proto==="m10"?'Mendix 10 doesn\'t send microflow names over the wire, so you see the ID instead.':'For classic Mendix you see the full Module.DS_Name.')+'</div>'+
+    '<div class="mxi-info-line"><strong>Shape badge</strong> (blue pill) — inferred from the options payload: <strong>call</strong> = simple op, <strong>list ×N</strong> = paginated retrieve, <strong>sorted</strong> = has sort order, <strong>filtered</strong> = has XPath filter.</div>'+
+    '<div class="mxi-info-line"><strong>Duration</strong> — average milliseconds per call. Above ~500ms is worth investigating.</div>'+
+    '<div class="mxi-info-line"><strong>×N count</strong> — how many times this operation fired. ×1 normal · ×2–5 moderate · ×6+ likely nested data source.</div>'+
+    '<div class="mxi-info-line" style="color:#9A9A9A;font-size:10px;margin-top:10px">List autorefreshes every 5s while this section is open.</div>';
+  return '<span class="mxi-section-header-extra" style="margin-left:auto;display:inline-flex;align-items:center;gap:4px">'+
+           '<button type="button" class="mxi-chip-btn" id="mxi-ds-refresh-btn" title="Refresh now">'+icon("refresh",13)+'</button>'+
+           '<button type="button" class="mxi-chip-btn" id="mxi-ds-info-btn" title="What am I looking at?">'+icon("info",13)+
+             '<div class="mxi-info-tooltip" id="mxi-ds-info-tooltip" style="width:300px">'+tipHtml+'</div>'+
+           '</button>'+
+         '</span>';
+})())+
+/* v0.2.42 — Actions section removed. Mendix 10's React client abstracts the
+ * microflow reference behind an opaque runtime operationId, so we can't
+ * accurately show which microflow each button calls. Rather than show
+ * misleading class-name-based counts, the section is dropped entirely. */
+section("conditional","Conditional ("+i.conditionalElements+")","eye",'<div class="mxi-metrics" style="grid-template-columns:1fr">'+metric("Hidden",i.conditionalElements,i.conditionalElements>30?p:null,"conditional")+"</div>",false)+
 section("a11y","Accessibility ("+i.a11y.wcagLevel+")","a11y",a11yContent,false)+
 section("typography","Typography","type",typoContent,false)+
 section("css","CSS Analysis","css",cssContent,false)+
 section("security","Security","shield",securityContent,false)+
-section("network","Network","globe",'<div class="mxi-metrics mxi-metrics-3">'+metric("XHR",i.xhrRequests,null,"xhr")+metric("Static",i.staticRequests,null,"static")+metric("Total",i.totalRequests,null,"requests")+"</div>"+(i.slowRequests.length?'<div style="margin-top:10px;padding:8px 10px;background:#fef3c7;border-radius:6px;font-size:11px;color:#92400e"><strong>⚠️ Slow requests (>1s):</strong> '+i.slowRequests.slice(0,3).map(function(r){return r.url+" ("+r.duration+"ms)"}).join(", ")+"</div>":""),false)+
+section("network","Network","globe",'<div class="mxi-metrics mxi-metrics-3">'+metric("XHR",i.xhrRequests,null,"xhr")+metric("Static",i.staticRequests,null,"static")+metric("Total",i.totalRequests,null,"requests")+"</div>"+(i.slowRequests.length?'<div style="margin-top:10px;padding:8px 10px;background:#fef3c7;border-radius:6px;font-size:11px;color:#92400e"><strong style="display:inline-flex;align-items:center;gap:4px">'+icon("warning",11)+' Slow requests (>1s):</strong> '+i.slowRequests.slice(0,3).map(function(r){return r.url+" ("+r.duration+"ms)"}).join(", ")+"</div>":""),false)+
 section("session","Session","user",sessionContent,false)+
-'</div><div class="mxi-footer"><button class="mxi-btn mxi-btn-secondary" id="mxi-widget-inspect-btn" title="Object Inspector - See attributes & associations">'+icon("crosshair",16)+' Inspect</button><button class="mxi-btn mxi-btn-secondary" id="mxi-log-btn">'+icon("terminal",16)+' Log</button><button class="mxi-btn mxi-btn-primary" id="mxi-export-btn">'+icon("pdf",16)+' PDF</button></div>';
+'</div><div class="mxi-footer"><button class="mxi-btn mxi-btn-secondary" id="mxi-data-panel-btn" title="Open Data Inspector — see page parameters, entities, objects & attributes">'+icon("stack",16)+' Data</button><button class="mxi-btn mxi-btn-primary" id="mxi-export-btn">'+icon("pdf",16)+' PDF</button></div>';
 
 A.innerHTML=html;document.body.appendChild(A);
 
-var clearBtn=document.createElement("button");clearBtn.className="mxi-clear-btn";clearBtn.textContent="✕ Clear Highlights";clearBtn.onclick=clearHighlights;document.body.appendChild(clearBtn);
+/* v0.2.52 — CSS handles show/hide entirely via :hover. JS does two small
+ * things: (1) stop clicks on the ? from bubbling to the parent metric card
+ * (which would trigger a highlight action), (2) if the popover would overflow
+ * the right edge of the main panel, flip it to anchor left-aligned instead. */
+(function(){
+  A.querySelectorAll(".mxi-tip").forEach(function(tipEl){
+    tipEl.addEventListener("click",function(e){e.stopPropagation()});
+    var pop=tipEl.querySelector(".mxi-tip-pop");
+    if(!pop)return;
+    /* v0.2.54 — on hover, promote BOTH the metric card AND its enclosing
+     * section to a high z-index. Sibling sections render in DOM order so
+     * when a tooltip extends upward out of Data Containers into Performance,
+     * Performance's cards paint over it unless Data Containers' stacking
+     * context wins. Promoting the section z-index handles that case.
+     * We also need the section to be `position:relative` for z-index to
+     * take effect. */
+    var parentMetric=tipEl.closest(".mxi-metric");
+    var parentSection=tipEl.closest(".mxi-section");
+    tipEl.addEventListener("mouseenter",function(){
+      if(parentMetric)parentMetric.style.zIndex="100";
+      if(parentSection){
+        parentSection.style.position="relative";
+        parentSection.style.zIndex="100";
+      }
+      /* Reset any prior flip */
+      pop.style.right="0";
+      pop.style.left="auto";
+      var rect=pop.getBoundingClientRect();
+      var panelRect=A.getBoundingClientRect();
+      /* If the popover extends past the left edge of the panel, anchor left */
+      if(rect.left<panelRect.left+4){
+        pop.style.right="auto";
+        pop.style.left="0";
+      }
+    });
+    tipEl.addEventListener("mouseleave",function(){
+      if(parentMetric)parentMetric.style.zIndex="";
+      if(parentSection){
+        parentSection.style.zIndex="";
+        parentSection.style.position="";
+      }
+    });
+  });
+})();
 
-var highlightedEls=[],labelEls=[],activeInsight=null;
-function clearHighlights(){highlightedEls.forEach(function(el){el.classList.remove("mxi-highlight");el.style.removeProperty("outline-color");el.style.removeProperty("outline-width");el.style.removeProperty("outline-style");el.style.removeProperty("outline-offset");el.style.removeProperty("background-color")});labelEls.forEach(function(el){if(el.parentNode)el.parentNode.removeChild(el)});highlightedEls=[];labelEls=[];clearBtn.style.display="none";clearBtn.style.background="#FFB800";clearBtn.style.boxShadow="0 4px 20px rgba(255,184,0,.4)";if(activeInsight){activeInsight.classList.remove("active");activeInsight.style.background="";activeInsight.style.borderColor="";activeInsight.removeAttribute("data-active-severity");activeInsight=null}if(typeof activeMetric!=="undefined"&&activeMetric){activeMetric.style.background="";activeMetric.style.borderColor="";activeMetric=null}}
+/* v0.2.29 — additional styles for: embedded Data drawer button active state,
+ * main-panel corner resize grip, and panel min-size rules. Injected separately
+ * to keep this diff surgical. */
+var extraStyle=document.createElement("style");
+extraStyle.id="mxi-v029-styles";
+extraStyle.textContent=
+  '#mx-inspector-pro{min-width:320px;min-height:240px;max-width:95vw;max-height:95vh}'+
+  '#mx-inspector-pro[data-mxi-minimized="true"]{min-height:0!important}'+
+  '.mxi-body{position:relative}'+
+  '.mxi-btn.mxi-btn-active{background:#FFB800;color:#141414;box-shadow:0 0 0 1px #ffcc33 inset}'+
+  '.mxi-btn.mxi-btn-active:hover{background:#ffcc33}'+
+  '#mxi-resize-grip{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;z-index:5;'+
+    'background:linear-gradient(135deg,transparent 0 55%,#444 55% 60%,transparent 60% 70%,#444 70% 75%,transparent 75% 85%,#444 85% 90%,transparent 90%);'+
+    'opacity:.5;transition:opacity .15s}'+
+  '#mxi-resize-grip:hover{opacity:1}';
+document.head.appendChild(extraStyle);
+
+/* Resize grip — bottom-right corner of the main panel */
+var resizeGrip=document.createElement("div");
+resizeGrip.id="mxi-resize-grip";
+resizeGrip.title="Drag to resize";
+A.appendChild(resizeGrip);
+(function(){
+  var resizing=false,sx=0,sy=0,sw=0,sh=0;
+  resizeGrip.addEventListener("mousedown",function(e){
+    resizing=true;
+    var r=A.getBoundingClientRect();
+    sx=e.clientX;sy=e.clientY;sw=r.width;sh=r.height;
+    /* pin top/left so width/height changes don't jump the panel */
+    A.style.left=r.left+"px";A.style.top=r.top+"px";A.style.right="auto";A.style.maxHeight="none";
+    e.preventDefault();e.stopPropagation();
+  });
+  document.addEventListener("mousemove",function(e){
+    if(!resizing)return;
+    var nw=Math.max(320,Math.min(window.innerWidth*0.95,sw+(e.clientX-sx)));
+    var nh=Math.max(240,Math.min(window.innerHeight*0.95,sh+(e.clientY-sy)));
+    A.style.width=nw+"px";
+    A.style.height=nh+"px";
+  },true);
+  document.addEventListener("mouseup",function(){
+    if(!resizing)return;
+    resizing=false;
+    /* v0.2.33 — persist only when a resize actually happened. Previously the
+     * save ran on ANY mouseup anywhere, which was excessive and could persist
+     * a minimized 68px height. */
+    try {
+      var r=A.getBoundingClientRect();
+      localStorage.setItem("mxi_main_size",JSON.stringify({w:Math.round(r.width),h:Math.round(r.height)}));
+    } catch(e){}
+  },true);
+})();
+
+/* v0.2.30 — restore persisted panel size from localStorage if present */
+(function(){
+  try {
+    var saved=localStorage.getItem("mxi_main_size");
+    if(saved){
+      var dims=JSON.parse(saved);
+      if(dims && dims.w && dims.h){
+        var maxW=window.innerWidth*0.95, maxH=window.innerHeight*0.95;
+        var w=Math.max(320,Math.min(maxW,dims.w));
+        var h=Math.max(240,Math.min(maxH,dims.h));
+        A.style.width=w+"px";
+        A.style.height=h+"px";
+        A.style.maxHeight="none";
+      }
+    }
+  } catch(e){}
+})();
+
+/* v0.2.33 — save-on-resize now integrated into the resize grip handler above. */
+
+/* v0.2.30 — if the Data Inspector was open in this session (e.g. a page
+ * navigation just rebuilt the main panel), auto-reopen the drawer after
+ * initial scans are done. Small delay so the main panel finishes its own
+ * render cycle first. */
+setTimeout(function(){
+  try {
+    if (window.__MxDataPanel && window.__MxDataPanel.wasOpenInSession && window.__MxDataPanel.wasOpenInSession() && !window.__MxDataPanel.isOpen()) {
+      var dataBtnAuto=document.getElementById("mxi-data-panel-btn");
+      if(dataBtnAuto) dataBtnAuto.click();
+    }
+  } catch(e){}
+},400);
+
+var clearBtn=document.createElement("button");clearBtn.className="mxi-clear-btn";clearBtn.textContent="✕ Clear Highlights";clearBtn.onclick=function(){clearHighlights()};document.body.appendChild(clearBtn);
+
+/* ----------------------------------------------------------------------
+ * v0.2.58 — Portal-based overlay highlighting
+ *
+ * Previously this file used an outline class + body-level labels to
+ * highlight elements triggered from clickable metrics / a11y tiles /
+ * insights. That approach gets clipped by Mendix grid layouts (ancestor
+ * overflow:hidden / transforms / clip-path / contain:paint).
+ *
+ * Ported over the overlay system from mxi-data-panel.js (v0.2.28):
+ *   - One <div> per target, appended to document.body
+ *   - position:fixed, coords from getBoundingClientRect()
+ *   - Kept in sync by scroll (capture), resize, and a RAF tick
+ *   - Tinted background (20%) + border + halo glow + inset-ring via
+ *     color-mix() so all severity colors share the same visual treatment
+ *
+ * The overlay root uses a separate id from mxi-data-panel's so the two
+ * systems don't collide when both are active (drawer open AND a metric
+ * highlight pinned). ---------------------------------------------------- */
+var MXI_INS_OVERLAY_ROOT_ID="mxi-ins-overlay-root";
+var MXI_INS_OVERLAY_STYLE_ID="mxi-ins-overlay-styles";
+function getInsOverlayRoot(){
+  var r=document.getElementById(MXI_INS_OVERLAY_ROOT_ID);
+  if(r)return r;
+  r=document.createElement("div");
+  r.id=MXI_INS_OVERLAY_ROOT_ID;
+  /* z-index 999990 sits above Mendix content but below the main
+   * MxInspector panel (999999) so panel text stays on top. Matches
+   * mxi-data-panel's overlay root. */
+  r.style.cssText="position:fixed;top:0;left:0;width:0;height:0;pointer-events:none;z-index:999990;";
+  document.body.appendChild(r);
+  return r;
+}
+function ensureInsOverlayStyles(){
+  if(document.getElementById(MXI_INS_OVERLAY_STYLE_ID))return;
+  var s=document.createElement("style");
+  s.id=MXI_INS_OVERLAY_STYLE_ID;
+  s.textContent=
+    ".mxi-ins-ol{"+
+      "position:fixed;pointer-events:none;box-sizing:border-box;"+
+      "border:3px solid var(--mxi-ins-color,#FFB800);"+
+      "background:color-mix(in srgb, var(--mxi-ins-color,#FFB800) 18%, transparent);"+
+      "box-shadow:0 0 0 1px color-mix(in srgb, var(--mxi-ins-color,#FFB800) 40%, transparent),"+
+                " 0 0 12px 2px color-mix(in srgb, var(--mxi-ins-color,#FFB800) 25%, transparent);"+
+      "border-radius:3px;transition:opacity .12s;"+
+    "}"+
+    ".mxi-ins-ol-label{"+
+      "position:absolute;top:-22px;left:-3px;"+
+      "background:var(--mxi-ins-color,#FFB800);color:#0A0A0A;"+
+      "padding:3px 8px;border-radius:4px 4px 4px 0;"+
+      "font:700 11px Inter,-apple-system,system-ui,sans-serif;"+
+      "letter-spacing:.2px;white-space:nowrap;"+
+      "box-shadow:0 2px 8px rgba(0,0,0,.4);"+
+      "max-width:80vw;overflow:hidden;text-overflow:ellipsis;"+
+    "}"+
+    ".mxi-ins-ol[data-flip='below'] .mxi-ins-ol-label{"+
+      "top:auto;bottom:-22px;border-radius:0 4px 4px 4px;"+
+    "}"+
+    /* v0.2.59 — Neutral variant for informational highlights (data
+     * containers, non-warning clickable metrics). Grey outline, dark chip
+     * with white text — reads as "hey look here" not "warning". */
+    ".mxi-ins-ol[data-variant='neutral']{"+
+      "border-color:#B0B0B0;"+
+      "background:color-mix(in srgb, #B0B0B0 14%, transparent);"+
+      "box-shadow:0 0 0 1px rgba(176,176,176,.32),"+
+                " 0 0 12px 2px rgba(176,176,176,.18);"+
+    "}"+
+    ".mxi-ins-ol[data-variant='neutral'] .mxi-ins-ol-label{"+
+      "background:#1A1A1A;color:#FFFFFF;"+
+      "border:1px solid rgba(255,255,255,.12);"+
+    "}";
+  document.head.appendChild(s);
+}
+function createInsOverlay(target,color,label,variant){
+  var ov=document.createElement("div");
+  ov.className="mxi-ins-ol";
+  ov.style.setProperty("--mxi-ins-color",color);
+  if(variant)ov.setAttribute("data-variant",variant);
+  if(label){
+    var chip=document.createElement("div");
+    chip.className="mxi-ins-ol-label";
+    chip.textContent=label;
+    ov.appendChild(chip);
+  }
+  function reposition(){
+    if(!target||!target.getBoundingClientRect)return;
+    var r=target.getBoundingClientRect();
+    if(r.width===0&&r.height===0){ov.style.opacity="0";return}
+    ov.style.opacity="1";
+    ov.style.left=r.left+"px";
+    ov.style.top=r.top+"px";
+    ov.style.width=r.width+"px";
+    ov.style.height=r.height+"px";
+    ov.setAttribute("data-flip",r.top<26?"below":"above");
+  }
+  reposition();
+  getInsOverlayRoot().appendChild(ov);
+  return {node:ov,reposition:reposition,target:target};
+}
+var _insOverlayListenersBound=false;
+function bindInsOverlayListeners(){
+  if(_insOverlayListenersBound)return;
+  _insOverlayListenersBound=true;
+  function refreshAll(){
+    activeOverlays.forEach(function(o){if(o&&o.reposition)o.reposition()});
+  }
+  window.addEventListener("scroll",refreshAll,true);
+  window.addEventListener("resize",refreshAll,true);
+  function tick(){
+    if(activeOverlays.length>0)refreshAll();
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+function destroyInsOverlay(o){
+  if(o&&o.node&&o.node.parentNode)o.node.parentNode.removeChild(o.node);
+}
+
+/* Highlight state — array of overlay handles (replaces the old
+ * highlightedEls/labelEls pair). activeInsight/activeMetric are still
+ * tracked the same way for button-state bookkeeping. */
+var activeOverlays=[],activeInsight=null;
+function clearHighlights(){
+  activeOverlays.forEach(destroyInsOverlay);
+  activeOverlays=[];
+  clearBtn.style.display="none";
+  clearBtn.style.background="#FFB800";
+  clearBtn.style.boxShadow="0 4px 20px rgba(255,184,0,.4)";
+  if(activeInsight){
+    activeInsight.classList.remove("active");
+    activeInsight.style.background="";
+    activeInsight.style.borderColor="";
+    activeInsight.removeAttribute("data-active-severity");
+    activeInsight=null;
+  }
+  if(typeof activeMetric!=="undefined"&&activeMetric){
+    activeMetric.style.background="";
+    activeMetric.style.borderColor="";
+    activeMetric=null;
+  }
+}
+/* Paint an array of targets with the portal overlay approach.
+ * Returns the number of overlays created so callers can bail gracefully.
+ * v0.2.59: variant param ("neutral" for informational data-container
+ * highlights; omit for severity-colored highlights). Labels also pick up
+ * nesting depth when the target sits inside other data containers —
+ * "1/3 • listView1 • 2 deep". */
+function paintOverlays(targets,color,labelPrefix,variant){
+  ensureInsOverlayStyles();
+  bindInsOverlayListeners();
+  /* Clear any drawer-owned overlays so we don't stack two systems on the
+   * same element. v0.2.59 fix for the double-overlay bug. */
+  try{
+    if(window.__MxDataPanel&&window.__MxDataPanel.clearAllHighlights){
+      window.__MxDataPanel.clearAllHighlights();
+    }
+  }catch(e){}
+  var made=0;
+  targets.forEach(function(t,idx){
+    if(!t||!t.parentNode||!t.getBoundingClientRect)return;
+    var widgetMatch=t.className&&typeof t.className==="string"?t.className.match(/mx-name-([^\s]+)/):null;
+    /* Nesting depth — how many data-container ancestors sit above this
+     * element. Useful for Nested Issues highlights, harmless otherwise. */
+    var depth=0;
+    try{if(typeof countContainerDepth==="function")depth=countContainerDepth(t)}catch(e){}
+    var label=(idx+1)+"/"+targets.length+
+              (widgetMatch?" • "+widgetMatch[1]:"")+
+              (depth>0?" • "+depth+" deep":"");
+    if(labelPrefix)label=labelPrefix+" "+label;
+    activeOverlays.push(createInsOverlay(t,color,label,variant));
+    made++;
+  });
+  return made;
+}
+
+/* Legacy no-op stubs. Old code paths reference highlightedEls/labelEls as
+ * arrays (length checks, push calls). Keeping empty arrays around means
+ * those paths run without error but do nothing. Preserved only for
+ * backwards-compat until all call sites are rewired. */
+var highlightedEls=[],labelEls=[];
 
 var dragHandle=document.getElementById("mxi-drag-handle"),isDragging=false,startX,startY,startLeft,startTop;
 dragHandle.addEventListener("mousedown",function(e){if(!e.target.closest(".mxi-icon-btn")&&!e.target.closest(".mxi-copy-btn")){isDragging=true;startX=e.clientX;startY=e.clientY;var rect=A.getBoundingClientRect();startLeft=rect.left;startTop=rect.top;e.preventDefault()}});
@@ -1139,16 +2676,111 @@ if(typeof widgetInspectCloseBtn!=="undefined"&&widgetInspectCloseBtn){widgetInsp
 /* Clean up data panel if open */
 if(typeof dataPanelVisible!=="undefined"&&dataPanelVisible&&typeof closeDataPanel==="function")closeDataPanel();
 document.removeEventListener("keydown",handleEscapeKey);
-cleanup();clearHighlights();clearBtn.remove();A.remove()};
+cleanup();clearHighlights();clearBtn.remove();A.remove();var _or=document.getElementById(MXI_INS_OVERLAY_ROOT_ID);if(_or)_or.remove();var _os=document.getElementById(MXI_INS_OVERLAY_STYLE_ID);if(_os)_os.remove()};
 
 var infoBtn=document.getElementById("mxi-info-btn"),infoTooltip=document.getElementById("mxi-info-tooltip");
 infoBtn.onclick=function(e){e.stopPropagation();infoTooltip.classList.toggle("show")};
 document.addEventListener("click",function(e){if(infoTooltip&&!e.target.closest("#mxi-info-btn")&&!e.target.closest("#mxi-info-tooltip"))infoTooltip.classList.remove("show")});
 
-/* Copy - ONLY PAGE NAME */
-document.getElementById("mxi-copy-btn").onclick=function(){var btn=this;var text=i.page;if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.innerHTML=icon("check",18);btn.style.background="#22c55e";setTimeout(function(){btn.innerHTML=icon("copy",18);btn.style.background=""},1500)})}else{var ta=document.createElement("textarea");ta.value=text;ta.style.cssText="position:fixed;left:-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);btn.innerHTML=icon("check",18);btn.style.background="#22c55e";setTimeout(function(){btn.innerHTML=icon("copy",18);btn.style.background=""},1500)}};
+/* v0.2.37 — score breakdown info button: click to open, click outside to dismiss */
+var scoreInfoBtn=document.getElementById("mxi-score-info-btn"),scoreInfoTooltip=document.getElementById("mxi-score-info-tooltip");
+if(scoreInfoBtn&&scoreInfoTooltip){
+  scoreInfoBtn.onclick=function(e){e.stopPropagation();scoreInfoTooltip.classList.toggle("show")};
+  document.addEventListener("click",function(e){if(scoreInfoTooltip&&!e.target.closest("#mxi-score-info-btn")&&!e.target.closest("#mxi-score-info-tooltip"))scoreInfoTooltip.classList.remove("show")});
+}
 
-document.getElementById("mxi-log-btn").onclick=function(){console.log("%c Mendix Inspector Pro ","background:#0595DB;color:white;font-weight:bold;padding:6px 12px;border-radius:4px",i);alert("Logged to console (F12)")};
+/* v0.2.71 — Data Sources info button (replaces the old <details> explainer)
+ * and manual refresh button. Same open/dismiss pattern as Score tooltip.
+ * Manual refresh uses the surgical innerHTML-swap path so it doesn't blink
+ * the whole panel. */
+var dsInfoBtn=document.getElementById("mxi-ds-info-btn"),dsInfoTooltip=document.getElementById("mxi-ds-info-tooltip");
+if(dsInfoBtn&&dsInfoTooltip){
+  /* Clicks inside the tooltip must NOT bubble to the button (which would
+   * toggle the tooltip closed). */
+  dsInfoTooltip.addEventListener("click",function(e){e.stopPropagation()});
+  dsInfoBtn.onclick=function(e){e.stopPropagation();dsInfoTooltip.classList.toggle("show")};
+  document.addEventListener("click",function(e){if(dsInfoTooltip&&!e.target.closest("#mxi-ds-info-btn")&&!e.target.closest("#mxi-ds-info-tooltip"))dsInfoTooltip.classList.remove("show")});
+}
+var dsRefreshBtn=document.getElementById("mxi-ds-refresh-btn");
+if(dsRefreshBtn){
+  dsRefreshBtn.onclick=function(e){
+    e.stopPropagation();
+    var btn=dsRefreshBtn;
+    btn.classList.add("mxi-chip-spin");
+    setTimeout(function(){ btn.classList.remove("mxi-chip-spin"); }, 400);
+    try {
+      if (!window.__mxiPerf || !window.__mxiPerf.getSummary) return;
+      var fresh = window.__mxiPerf.getSummary();
+      if (!fresh || !fresh.dataSourceCalls) return;
+      var freshDsc = fresh.dataSourceCalls;
+      if (freshDsc.microflows)   freshDsc.microflows.sort(function(a,b){return b.count-a.count});
+      if (freshDsc.otherActions) freshDsc.otherActions.sort(function(a,b){return b.count-a.count});
+      if (freshDsc.operations)   freshDsc.operations.sort(function(a,b){return b.count-a.count});
+      i.dataSourceCalls = freshDsc;
+      if (fresh.dsDebug) i.dsDebug = fresh.dsDebug;
+      var sec = A.querySelector('.mxi-section[data-section-id="data"]');
+      var content = sec && sec.querySelector(".mxi-section-content");
+      if (content) content.innerHTML = renderDataSourcesHTML(freshDsc);
+    } catch(err){}
+  };
+}
+
+/* Copy - ONLY PAGE NAME */
+document.getElementById("mxi-copy-btn").onclick=function(){var btn=this;var text=i.page;
+/* v0.2.60 — Copy success flash: green background, green border (was
+ * inheriting the dark-grey idle border so the yellow hover ring was
+ * bleeding through), dark-text icon for legibility. */
+function flashSuccess(){
+  btn.innerHTML=icon("check",18);
+  btn.style.background="#2D9C5E";
+  btn.style.borderColor="#2D9C5E";
+  btn.style.color="#141414";
+  setTimeout(function(){
+    btn.innerHTML=icon("copy",18);
+    btn.style.background="";
+    btn.style.borderColor="";
+    btn.style.color="";
+  },1500);
+}
+if(navigator.clipboard){navigator.clipboard.writeText(text).then(flashSuccess)}else{var ta=document.createElement("textarea");ta.value=text;ta.style.cssText="position:fixed;left:-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);flashSuccess()}};
+
+/* v0.2.64 — Data source name copy buttons. Each DS row has a small copy
+ * icon next to the call count. Clicking copies the full fully-qualified
+ * microflow name so devs can paste straight into Studio Pro's Ctrl+Q
+ * navigator or search to jump to the microflow. */
+A.querySelectorAll(".mxi-ds-copy").forEach(function(btn){
+  btn.addEventListener("click",function(e){
+    e.stopPropagation();
+    var name=btn.getAttribute("data-ds-copy")||"";
+    if(!name)return;
+    function flashDsCopy(){
+      btn.classList.add("mxi-ds-copied");
+      btn.innerHTML=icon("check",11);
+      setTimeout(function(){
+        btn.classList.remove("mxi-ds-copied");
+        btn.innerHTML=icon("copy",11);
+      },1200);
+    }
+    if(navigator.clipboard){
+      navigator.clipboard.writeText(name).then(flashDsCopy);
+    } else {
+      var ta=document.createElement("textarea");
+      ta.value=name;
+      ta.style.cssText="position:fixed;left:-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      try{document.execCommand("copy")}catch(ex){}
+      document.body.removeChild(ta);
+      flashDsCopy();
+    }
+  });
+});
+
+/* v0.2.48 — Log button removed. The console.log + alert was a debug hook
+ * that non-developer users found confusing. Developers can use the Data
+ * Inspector drawer or devtools directly. */
+
+
 
 /* PDF EXPORT */
 document.getElementById("mxi-export-btn").onclick=function(){
@@ -1194,6 +2826,8 @@ pdfHtml+='<div class="metric"><div class="metric-value">'+(i.jsHeap?i.jsHeap+"MB
 pdfHtml+='<div class="metric"><div class="metric-value">'+s(i.totalTransferred)+'</div><div class="metric-label">Transfer</div></div>';
 pdfHtml+='<div class="metric"><div class="metric-value">'+(i.firstContentfulPaint?o(i.firstContentfulPaint):"-")+'</div><div class="metric-label">FCP</div></div>';
 pdfHtml+='<div class="metric"><div class="metric-value">'+(i.largestContentfulPaint?o(i.largestContentfulPaint):"-")+'</div><div class="metric-label">LCP</div></div>';
+pdfHtml+='<div class="metric"><div class="metric-value '+(i.ttfb>600?"warn":"")+'">'+(i.ttfb?o(i.ttfb):"-")+'</div><div class="metric-label">TTFB</div></div>';
+pdfHtml+='<div class="metric"><div class="metric-value '+(i.cls>0.1?"warn":"")+'">'+(i.cls?i.cls.toFixed(3):"-")+'</div><div class="metric-label">CLS</div></div>';
 pdfHtml+='<div class="metric"><div class="metric-value">'+i.maxNestingDepth+'</div><div class="metric-label">Max Depth</div></div>';
 pdfHtml+='</div>';
 
@@ -1210,25 +2844,88 @@ pdfHtml+='</table>';
 if(i.dataViewEntities.length)pdfHtml+='<p style="margin-top:12px"><strong>Entities:</strong> '+i.dataViewEntities.join(", ")+'</p>';
 pdfHtml+='</div>';
 
-/* Snippets */
-if(i.snippets.length){pdfHtml+='<h2>Snippets ('+i.snippetCount+')</h2><div class="section">';i.snippets.forEach(function(s){pdfHtml+='<span class="tag">'+s+'</span>'});pdfHtml+='</div>'}
+/* Snippets — removed from PDF in v0.2.38 (detection unreliable) */
 
-/* Actions */
-pdfHtml+='<h2>Actions</h2><div class="metrics">';
-pdfHtml+='<div class="metric"><div class="metric-value '+(i.microflowActions>15?"warn":"")+'">'+i.microflowActions+'</div><div class="metric-label">Microflows</div></div>';
-pdfHtml+='<div class="metric"><div class="metric-value">'+i.nanoflowActions+'</div><div class="metric-label">Nanoflows</div></div>';
-pdfHtml+='<div class="metric"><div class="metric-value">'+i.otherActions+'</div><div class="metric-label">Other</div></div>';
-pdfHtml+='</div>';
+/* Actions — removed in v0.2.42 (see main-panel note; Mendix 10 hides microflow refs) */
 
-/* Data Sources */
-pdfHtml+='<h2>Data Sources</h2><div class="metrics">';
-pdfHtml+='<div class="metric"><div class="metric-value">'+i.dataSources.database+'</div><div class="metric-label">Database</div></div>';
-pdfHtml+='<div class="metric"><div class="metric-value">'+i.dataSources.microflow+'</div><div class="metric-label">Microflow</div></div>';
-pdfHtml+='<div class="metric"><div class="metric-value">'+i.dataSources.nanoflow+'</div><div class="metric-label">Nanoflow</div></div>';
-pdfHtml+='</div>';
+/* Data Sources — v0.2.0: real runtime call capture via perf-tracker.
+ * Falls back to classic 3-box counts only if the tracker isn't active. */
+pdfHtml+='<h2>Data Sources</h2>';
+(function(){
+  var _dsc = i.dataSourceCalls || {};
+  var _ops = _dsc.operations || [];
+  var _mfs = _dsc.microflows || [];
+  var _others = _dsc.otherActions || [];
+  var _commits = _dsc.commits || 0;
+  var _total = _mfs.length + _ops.length + (_dsc.xpathRetrieves||0) + (_dsc.associationRetrieves||0);
+  var _proto = _ops.length > 0 ? (_mfs.length > 0 ? "mixed" : "Mendix 10") : "classic";
 
-/* Pluggable Widgets */
-if(i.uniquePluggableWidgets.length){pdfHtml+='<h2>Pluggable Widgets ('+i.uniquePluggableWidgets.length+')</h2><div class="section">';i.uniquePluggableWidgets.forEach(function(w){pdfHtml+='<span class="tag">'+w+'</span>'});pdfHtml+='</div>'}
+  if(!i.perfTrackerActive){
+    /* Tracker not active — fall back to the old counts with a note. */
+    pdfHtml+='<div class="section"><p style="color:#888;font-size:12px;font-style:italic;margin-bottom:12px">Perf tracker not active — showing DOM-inferred counts only.</p><div class="metrics">';
+    pdfHtml+='<div class="metric"><div class="metric-value">'+(i.dataSources.database||0)+'</div><div class="metric-label">Database</div></div>';
+    pdfHtml+='<div class="metric"><div class="metric-value">'+(i.dataSources.microflow||0)+'</div><div class="metric-label">Microflow</div></div>';
+    pdfHtml+='<div class="metric"><div class="metric-value">'+(i.dataSources.nanoflow||0)+'</div><div class="metric-label">Nanoflow</div></div>';
+    pdfHtml+='</div></div>';
+    return;
+  }
+  if(_total===0){
+    pdfHtml+='<div class="section"><p style="color:#888">No data source calls captured on this page load.</p></div>';
+    return;
+  }
+
+  pdfHtml+='<div class="section"><p style="font-size:12px;color:#666;margin-bottom:12px">Protocol: <strong>'+_proto+'</strong> · '+_total+' call'+(_total===1?'':'s')+' on this page load'+(_commits?' · '+_commits+' write call'+(_commits===1?'':'s'):'')+'</p>';
+
+  /* Classic microflows list */
+  if(_mfs.length){
+    pdfHtml+='<h3>Microflow Data Sources ('+_mfs.length+' unique)</h3>';
+    pdfHtml+='<table><tr><th>Microflow</th><th>Avg Duration</th><th>Calls</th></tr>';
+    _mfs.slice(0,30).forEach(function(mf){
+      var avgMs = mf.count>0 ? Math.round(mf.totalDuration/mf.count) : 0;
+      var durStr = avgMs>0 ? (avgMs<1000 ? avgMs+'ms' : (avgMs/1000).toFixed(2)+'s') : '-';
+      var cls = mf.count>5 ? 'bad' : mf.count>1 ? 'warn' : '';
+      pdfHtml+='<tr><td style="font-family:monospace;font-size:11px;word-break:break-all">'+mf.name+'</td><td>'+durStr+'</td><td class="'+cls+'">×'+mf.count+'</td></tr>';
+    });
+    if(_mfs.length>30) pdfHtml+='<tr><td colspan="3" style="text-align:center;color:#888;font-style:italic">…and '+(_mfs.length-30)+' more</td></tr>';
+    pdfHtml+='</table>';
+  }
+
+  /* Mendix 10 runtime operations */
+  if(_ops.length){
+    pdfHtml+='<h3>Runtime Operations ('+_ops.length+' unique)</h3>';
+    pdfHtml+='<p style="font-size:11px;color:#888;margin-bottom:8px">Mendix 10 uses opaque operation IDs — microflow names aren\'t sent over the wire.</p>';
+    pdfHtml+='<table><tr><th>Operation ID</th><th>Shape</th><th>Avg Duration</th><th>Calls</th><th>Writes</th></tr>';
+    _ops.slice(0,30).forEach(function(op){
+      var avgMs = op.count>0 ? Math.round(op.totalDuration/op.count) : 0;
+      var durStr = avgMs>0 ? (avgMs<1000 ? avgMs+'ms' : (avgMs/1000).toFixed(2)+'s') : '-';
+      var cls = op.count>5 ? 'bad' : op.count>1 ? 'warn' : '';
+      pdfHtml+='<tr><td style="font-family:monospace;font-size:10px;word-break:break-all;max-width:200px">'+op.opId+'</td><td style="font-size:11px">'+(op.shape||'-')+'</td><td>'+durStr+'</td><td class="'+cls+'">×'+op.count+'</td><td>'+(op.hasChanges?'Yes':'')+'</td></tr>';
+    });
+    if(_ops.length>30) pdfHtml+='<tr><td colspan="5" style="text-align:center;color:#888;font-style:italic">…and '+(_ops.length-30)+' more</td></tr>';
+    pdfHtml+='</table>';
+  }
+
+  /* Other actions (non-DS microflows) */
+  if(_others.length){
+    pdfHtml+='<h3>Other Actions ('+_others.length+')</h3>';
+    pdfHtml+='<p style="font-size:11px;color:#888;margin-bottom:8px">Microflows without DS_ prefix — usually user-triggered.</p>';
+    pdfHtml+='<table><tr><th>Name</th><th>Calls</th></tr>';
+    _others.slice(0,15).forEach(function(mf){
+      pdfHtml+='<tr><td style="font-family:monospace;font-size:11px">'+mf.name+'</td><td>×'+mf.count+'</td></tr>';
+    });
+    pdfHtml+='</table>';
+  }
+
+  pdfHtml+='</div>';
+})();
+
+/* Conditional — v0.2.0 addition */
+if(typeof i.conditionalElements === 'number'){
+  pdfHtml+='<h2>Conditional ('+i.conditionalElements+')</h2>';
+  pdfHtml+='<div class="section"><div class="metric" style="display:inline-block"><div class="metric-value '+(i.conditionalElements>30?'warn':'')+'">'+i.conditionalElements+'</div><div class="metric-label">Hidden elements</div></div>';
+  if(i.conditionalElements>30) pdfHtml+='<p style="font-size:12px;color:#666;margin-top:8px;font-style:italic">High hidden-element count — consider whether all are needed on this page.</p>';
+  pdfHtml+='</div>';
+}
 
 /* Accessibility */
 pdfHtml+='<h2>Accessibility</h2><div class="section"><table><tr><th>Check</th><th>Result</th><th>Status</th></tr>';
@@ -1261,19 +2958,39 @@ pdfHtml+='<div class="metric"><div class="metric-value">'+i.css.customProperties
 pdfHtml+='</div>';
 }
 
-/* Security */
+/* Security — v0.2.0: summary table + detail blocks for every check */
 pdfHtml+='<h2>Security Analysis</h2><div class="section"><table><tr><th>Check</th><th>Found</th><th>Risk</th></tr>';
+pdfHtml+='<tr><td>Known CVEs</td><td>'+i.security.cveWarnings.length+'</td><td class="'+(i.security.cveWarnings.length?"bad":"good")+'">'+(i.security.cveWarnings.length?"Critical":"None")+'</td></tr>';
 pdfHtml+='<tr><td>Exposed JS Constants</td><td>'+i.security.exposedConstants.length+'</td><td class="'+(i.security.exposedConstants.length?"warn":"good")+'">'+(i.security.exposedConstants.length?"Medium":"None")+'</td></tr>';
-pdfHtml+='<tr><td>Sensitive Entity Names</td><td>'+i.security.sensitiveEntities.length+'</td><td class="'+(i.security.sensitiveEntities.length?"warn":"good")+'">'+(i.security.sensitiveEntities.length?"Low":"None")+'</td></tr>';
-pdfHtml+='<tr><td>Revealing Action Names</td><td>'+i.security.revealingMicroflows.length+'</td><td class="'+(i.security.revealingMicroflows.length?"":"good")+'">'+(i.security.revealingMicroflows.length?"Info":"None")+'</td></tr>';
 pdfHtml+='<tr><td>Form Security Issues</td><td>'+i.security.formIssues.length+'</td><td class="'+(i.security.formIssues.length?"warn":"good")+'">'+(i.security.formIssues.length?"Medium":"None")+'</td></tr>';
 pdfHtml+='<tr><td>Sensitive URL Params</td><td>'+i.security.urlParams.length+'</td><td class="'+(i.security.urlParams.length?"bad":"good")+'">'+(i.security.urlParams.length?"High":"None")+'</td></tr>';
-pdfHtml+='<tr><td>Known CVEs</td><td>'+i.security.cveWarnings.length+'</td><td class="'+(i.security.cveWarnings.length?"bad":"good")+'">'+(i.security.cveWarnings.length?"Critical":"None")+'</td></tr>';
+/* v0.2.0 additions — only render rows when the underlying data is available */
+if(i.security.mendixConstants){
+  var _mc = i.security.mendixConstants;
+  var _mcTotal = (_mc.secrets||0) + (_mc.sensitive||0);
+  pdfHtml+='<tr><td>Mendix Constants · Secret scan</td><td>'+(_mc.secrets||0)+' secret · '+(_mc.sensitive||0)+' sensitive · '+(_mc.plain||0)+' plain</td><td class="'+((_mc.secrets||0)?"bad":(_mc.sensitive||0)?"warn":"good")+'">'+((_mc.secrets||0)?"High":(_mc.sensitive||0)?"Medium":"None")+'</td></tr>';
+}
+if(i.security.demoUsers){
+  var _duIsProd = /prod/i.test(i.envType||"");
+  var _duCount = i.security.demoUsers.count||0;
+  pdfHtml+='<tr><td>Demo Users'+(_duIsProd?' (prod)':' (non-prod)')+'</td><td>'+_duCount+'</td><td class="'+(_duCount===0?"good":_duIsProd?"bad":"warn")+'">'+(_duCount===0?"None":_duIsProd?"Critical":"Expected")+'</td></tr>';
+}
+if(i.security.anonymous){
+  pdfHtml+='<tr><td>Anonymous Session</td><td>'+(i.security.anonymous.anonymous?"Yes":"No")+'</td><td class="'+(i.security.anonymous.anonymous?"warn":"good")+'">'+(i.security.anonymous.anonymous?"Review":"OK")+'</td></tr>';
+}
+if(i.security.devMode){
+  var _dm = i.security.devMode.confidence || "low";
+  pdfHtml+='<tr><td>Dev-mode Indicators</td><td>Confidence: '+_dm+'</td><td class="'+(_dm==="high"?"warn":"good")+'">'+(_dm==="high"?"Warning":"OK")+'</td></tr>';
+}
+if(i.security.writableSensitive){
+  var _ws = i.security.writableSensitive.withWrites || 0;
+  pdfHtml+='<tr><td>Writable Sensitive Entities</td><td>'+_ws+'</td><td class="'+(_ws?"bad":"good")+'">'+(_ws?"High":"None")+'</td></tr>';
+}
 pdfHtml+='</table>';
 
 /* CVE Details */
 if(i.security.cveWarnings.length){
-pdfHtml+='<h3 style="color:#FF5A5A">⚠️ Known Vulnerabilities</h3>';
+pdfHtml+='<h3 style="color:#FF5A5A;display:flex;align-items:center;gap:8px">'+icon("warning",14)+' Known Vulnerabilities</h3>';
 i.security.cveWarnings.forEach(function(cve){
 pdfHtml+='<div class="cve-box"><div class="cve-id">'+cve.id+' <span style="font-weight:400;color:#888">('+cve.severity+')</span></div><div class="cve-desc">'+cve.desc+'</div></div>';
 });
@@ -1285,6 +3002,45 @@ if(i.security.formIssues.length){
 pdfHtml+='<h3>Form Security Issues</h3><ul>';
 i.security.formIssues.forEach(function(f){pdfHtml+='<li>'+f.msg+'</li>'});
 pdfHtml+='</ul>';
+}
+
+/* v0.2.0 — Mendix Constants secret scan detail */
+if(i.security.mendixConstants && i.security.mendixConstants.flagged && i.security.mendixConstants.flagged.length){
+  pdfHtml+='<h3>Mendix Constants · Flagged</h3>';
+  pdfHtml+='<p style="font-size:11px;color:#888">Values redacted by default. Full list visible in the extension panel.</p>';
+  pdfHtml+='<table><tr><th>Constant</th><th>Severity</th><th>Match reason</th></tr>';
+  i.security.mendixConstants.flagged.forEach(function(c){
+    var sev = c.severity || 'sensitive';
+    var cls = sev === 'secret' ? 'bad' : 'warn';
+    pdfHtml+='<tr><td style="font-family:monospace;font-size:11px">'+(c.name||'')+'</td><td class="'+cls+'">'+sev.toUpperCase()+'</td><td style="font-size:11px;color:#666">'+(c.reason||c.pattern||'')+'</td></tr>';
+  });
+  pdfHtml+='</table>';
+}
+
+/* v0.2.0 — Demo users detail */
+if(i.security.demoUsers && i.security.demoUsers.users && i.security.demoUsers.users.length){
+  pdfHtml+='<h3>Demo Users</h3>';
+  var _duIsProd2 = /prod/i.test(i.envType||"");
+  if(_duIsProd2) pdfHtml+='<p style="font-size:12px;color:#FF5A5A;font-weight:600">⚠ Demo users should not be enabled in production.</p>';
+  pdfHtml+='<table><tr><th>Username</th><th>Roles</th></tr>';
+  i.security.demoUsers.users.forEach(function(u){
+    var _roles = Array.isArray(u.roles) ? u.roles.join(", ") : (u.roles||"-");
+    pdfHtml+='<tr><td style="font-family:monospace;font-size:11px">'+(u.username||u.name||"-")+'</td><td>'+_roles+'</td></tr>';
+  });
+  pdfHtml+='</table>';
+}
+
+/* v0.2.0 — Writable sensitive entities detail */
+if(i.security.writableSensitive && i.security.writableSensitive.entities && i.security.writableSensitive.entities.length){
+  pdfHtml+='<h3>Writable Sensitive Entities</h3>';
+  pdfHtml+='<p style="font-size:11px;color:#888">These entities are commonly flagged in Mendix security reviews.</p>';
+  pdfHtml+='<ul>';
+  i.security.writableSensitive.entities.forEach(function(e){
+    if(e && (e.withWrites || (e.writableAttrs && e.writableAttrs.length))){
+      pdfHtml+='<li><strong>'+(e.name||e.entity||"?")+'</strong>'+(e.writableAttrs && e.writableAttrs.length ? ' — writable: ' + e.writableAttrs.join(", ") : '')+'</li>';
+    }
+  });
+  pdfHtml+='</ul>';
 }
 
 pdfHtml+='</div>';
@@ -1302,95 +3058,215 @@ pdfHtml+='<div class="footer">'+logoSvg+'<span>Generated by <strong>MxInspector 
 
 var win=window.open("","_blank");win.document.write(pdfHtml);win.document.close();setTimeout(function(){win.print()},500)};
 
-/* HIGHLIGHT CLICK HANDLERS - TOGGLE & ACTIVE STATE WITH SEVERITY COLORS */
+/* HIGHLIGHT CLICK HANDLERS - TOGGLE & ACTIVE STATE WITH SEVERITY COLORS
+ * v0.2.58 — uses portal overlay system (paintOverlays) instead of
+ * class-based outlines. Immune to Mendix layout clipping. */
+/* HIGHLIGHT CLICK HANDLERS - TOGGLE & ACTIVE STATE WITH SEVERITY COLORS
+ * v0.2.58 — uses portal overlay system (paintOverlays) instead of
+ * class-based outlines. Immune to Mendix layout clipping.
+ * v0.2.63 — click fires on the row rather than the whole insight so it
+ * doesn't intercept clicks inside the expandable aware panel. Info
+ * button gets its own handler that toggles .expanded on the insight. */
 var highlightColors={error:"#FF5A5A",warning:"#FFB800",info:"#3B99FC",success:"#2D9C5E"};
-A.querySelectorAll(".mxi-insight-clickable").forEach(function(el){el.addEventListener("click",function(){var key=this.getAttribute("data-highlight-key");var severity=this.getAttribute("data-severity")||"warning";var hlColor=highlightColors[severity]||highlightColors.warning;if(key&&i.highlightTargets[key]){
-/* If clicking the same insight, toggle off */
-if(activeInsight===this){clearHighlights();this.classList.remove("active");this.removeAttribute("data-active-severity");activeInsight=null;return}
-/* Clear previous */
-clearHighlights();
-if(activeInsight){activeInsight.classList.remove("active");activeInsight.removeAttribute("data-active-severity")}
-/* Set new active with severity class */
-this.classList.add("active");
-this.setAttribute("data-active-severity",severity);
-this.style.background=hlColor;
-this.style.borderColor=hlColor;
-activeInsight=this;
-var targets=i.highlightTargets[key];targets.forEach(function(t,idx){if(t&&t.parentNode){t.classList.add("mxi-highlight");t.style.setProperty("outline-color",hlColor,"important");t.style.setProperty("outline-width","3px","important");t.style.setProperty("outline-style","solid","important");t.style.setProperty("outline-offset","2px","important");highlightedEls.push(t);var label=document.createElement("div");label.className="mxi-highlight-label";label.textContent=(idx+1)+"/"+targets.length;label.style.background=hlColor;label.style.boxShadow="0 4px 12px "+hlColor+"55";document.body.appendChild(label);labelEls.push(label);
-function positionLabel(){var rect=t.getBoundingClientRect();label.style.left=Math.max(10,rect.left)+"px";label.style.top=Math.max(10,rect.top-30)+"px"}
-positionLabel();window.addEventListener("scroll",positionLabel);window.addEventListener("resize",positionLabel)}});if(targets[0])targets[0].scrollIntoView({behavior:"smooth",block:"center"});clearBtn.style.display="block";clearBtn.style.background=hlColor;clearBtn.style.boxShadow="0 4px 20px "+hlColor+"66"}})});;;
-
-/* CLICKABLE METRIC HANDLERS - Highlight elements by CSS selector */
-var activeMetric=null;
-A.querySelectorAll(".mxi-metric-clickable").forEach(function(el){el.addEventListener("click",function(){
-var selector=this.getAttribute("data-selector");
-var label=this.getAttribute("data-label");
-var hlColor="#FFB800";  /* Yellow for metrics */
-
-if(!selector)return;
-
-/* If clicking the same metric, toggle off */
-if(activeMetric===this){
-clearHighlights();
-this.style.background="";
-this.style.borderColor="";
-activeMetric=null;
-return;
-}
-
-/* Clear previous highlights */
-clearHighlights();
-if(activeMetric){activeMetric.style.background="";activeMetric.style.borderColor="";}
-if(activeInsight){activeInsight.classList.remove("active");activeInsight=null;}
-
-/* Highlight this metric */
-this.style.background="#1A1A1A";
-this.style.borderColor=hlColor;
-activeMetric=this;
-
-/* Find and highlight elements by selector */
-var targets=[];
-try{
-document.querySelectorAll(selector).forEach(function(t){targets.push(t)});
-}catch(e){console.warn("Invalid selector:",selector)}
-
-if(targets.length===0){
-console.log("No elements found for selector:",selector);
-return;
-}
-
-targets.forEach(function(t,idx){
-if(t&&t.parentNode){
-t.classList.add("mxi-highlight");
-t.style.setProperty("outline-color",hlColor,"important");
-t.style.setProperty("outline-width","3px","important");
-t.style.setProperty("outline-style","solid","important");
-t.style.setProperty("outline-offset","2px","important");
-highlightedEls.push(t);
-
-/* Create label */
-var labelEl=document.createElement("div");
-labelEl.className="mxi-highlight-label";
-var widgetName=t.className.match(/mx-name-([^\s]+)/);
-labelEl.textContent=(idx+1)+"/"+targets.length+(widgetName?" • "+widgetName[1]:"");
-labelEl.style.background=hlColor;
-labelEl.style.boxShadow="0 4px 12px "+hlColor+"55";
-document.body.appendChild(labelEl);
-labelEls.push(labelEl);
-
-function positionLabel(){var rect=t.getBoundingClientRect();labelEl.style.left=Math.max(10,rect.left)+"px";labelEl.style.top=Math.max(10,rect.top-30)+"px"}
-positionLabel();
-window.addEventListener("scroll",positionLabel);
-window.addEventListener("resize",positionLabel);
-}
+A.querySelectorAll(".mxi-insight-clickable").forEach(function(el){
+  var rowEl=el.querySelector(".mxi-insight-row")||el;
+  rowEl.addEventListener("click",function(ev){
+    /* Clicks that originated on the info button or inside the aware
+     * panel should never trigger the highlight. */
+    if(ev.target.closest(".mxi-insight-info-btn"))return;
+    if(ev.target.closest(".mxi-insight-aware"))return;
+    var key=el.getAttribute("data-highlight-key");
+    var severity=el.getAttribute("data-severity")||"warning";
+    var hlColor=highlightColors[severity]||highlightColors.warning;
+    if(!key||!i.highlightTargets[key])return;
+    /* Toggle off if clicking the same insight */
+    if(activeInsight===el){clearHighlights();return}
+    clearHighlights();
+    /* Set new active */
+    el.classList.add("active");
+    el.setAttribute("data-active-severity",severity);
+    el.style.background=hlColor;
+    el.style.borderColor=hlColor;
+    activeInsight=el;
+    var targets=i.highlightTargets[key];
+    var count=paintOverlays(targets,hlColor,null);
+    if(count===0){clearHighlights();return}
+    if(targets[0]&&targets[0].scrollIntoView){
+      targets[0].scrollIntoView({behavior:"smooth",block:"center"});
+    }
+    clearBtn.style.display="block";
+    clearBtn.style.background=hlColor;
+    clearBtn.style.boxShadow="0 4px 20px "+hlColor+"66";
+  });
 });
 
-/* Scroll to first element */
-if(targets[0])targets[0].scrollIntoView({behavior:"smooth",block:"center"});
-clearBtn.style.display="block";
-clearBtn.style.background=hlColor;
-clearBtn.style.boxShadow="0 4px 20px "+hlColor+"66";
+/* v0.2.63 — Info button: toggle .expanded on the parent insight so the
+ * awareness panel unfolds below the row. Stops propagation so the
+ * highlight click handler above never sees this event. */
+A.querySelectorAll(".mxi-insight-info-btn").forEach(function(btn){
+  btn.addEventListener("click",function(ev){
+    ev.stopPropagation();
+    var insight=btn.closest(".mxi-insight");
+    if(!insight)return;
+    insight.classList.toggle("expanded");
+  });
+});
+
+/* CLICKABLE METRIC HANDLERS - Highlight elements by CSS selector OR by
+ * pre-computed element array (via data-highlight-key).
+ * v0.2.55 — added the highlight-key branch so a11y metrics can reuse this
+ * handler with their element arrays stored at scan time.
+ * v0.2.58 — Rewired to paint via portal overlay system (paintOverlays) so
+ * highlights render consistently with the Data Inspector drawer's
+ * overlays and survive ancestor overflow:hidden / transforms / clip-path.
+ * v0.2.59 — Default metrics (Data Containers — DataView, ListView etc.)
+ * now render as NEUTRAL highlights: grey outline, dark chip with white
+ * text. Yellow/red remain reserved for warning / error severity. Active
+ * card border is also neutral (rgba-white) for default metrics. */
+var activeMetric=null;
+var highlightSeverityColors={error:"#FF5A5A",warning:"#FFB800",notice:"#FF7A50",info:"#B0B0B0"};
+A.querySelectorAll(".mxi-metric-clickable").forEach(function(el){el.addEventListener("click",function(){
+  var selector=this.getAttribute("data-selector");
+  var highlightKey=this.getAttribute("data-highlight-key");
+  /* No data-severity attribute → treat as informational (data containers).
+   * Severity is only set when clickable metrics were minted via
+   * highlightMetric() which explicitly passes it. */
+  var severity=this.getAttribute("data-severity")||"info";
+  var hlColor=highlightSeverityColors[severity]||"#B0B0B0";
+  var variant=severity==="info"?"neutral":null;
+  var activeBorder=severity==="info"?"rgba(255,255,255,.35)":hlColor;
+
+  if(!selector&&!highlightKey)return;
+
+  /* Toggle off */
+  if(activeMetric===this){clearHighlights();return}
+
+  clearHighlights();
+
+  /* Set active state on the clicked card */
+  this.style.background="#1A1A1A";
+  this.style.borderColor=activeBorder;
+  activeMetric=this;
+
+  /* Resolve targets */
+  var targets=[];
+  if(highlightKey){
+    var stored=i.highlightTargets&&i.highlightTargets[highlightKey];
+    if(stored)stored.forEach(function(t){if(t&&t.parentNode)targets.push(t)});
+  } else if(selector){
+    try{
+      document.querySelectorAll(selector).forEach(function(t){targets.push(t)});
+    }catch(e){console.warn("Invalid selector:",selector)}
+  }
+
+  if(targets.length===0){
+    console.log("No elements found for",highlightKey||selector);
+    clearHighlights();
+    return;
+  }
+
+  var made=paintOverlays(targets,hlColor,null,variant);
+  if(made===0){clearHighlights();return}
+
+  if(targets[0]&&targets[0].scrollIntoView){
+    targets[0].scrollIntoView({behavior:"smooth",block:"center"});
+  }
+  clearBtn.style.display="block";
+  clearBtn.style.background=hlColor;
+  clearBtn.style.boxShadow="0 4px 20px "+hlColor+"66";
 })});
+
+/* v0.2.45 — click any demo-user cell to copy it */
+A.querySelectorAll(".mxi-demo-copy").forEach(function(cell){
+  cell.addEventListener("click",function(){
+    var txt=this.getAttribute("data-copy")||this.textContent;
+    var self=this;
+    var orig=self.textContent;
+    var origColor=self.style.color;
+    function flash(){
+      self.textContent="copied";
+      self.style.color="#2D9C5E";
+      setTimeout(function(){self.textContent=orig;self.style.color=origColor;},900);
+    }
+    if(navigator.clipboard){
+      navigator.clipboard.writeText(txt).then(flash).catch(flash);
+    } else {
+      var ta=document.createElement("textarea");
+      ta.value=txt;ta.style.cssText="position:fixed;left:-9999px";
+      document.body.appendChild(ta);ta.select();
+      try{document.execCommand("copy");}catch(e){}
+      document.body.removeChild(ta);
+      flash();
+    }
+  });
+});
+
+/* v0.2.43 — reveal / re-hide redacted constant values */
+A.querySelectorAll(".mxi-reveal-btn").forEach(function(btn){
+  btn.addEventListener("click",function(){
+    var row=this.closest(".mxi-secret-row");
+    if(!row)return;
+    var valEl=row.querySelector(".mxi-secret-value");
+    if(!valEl)return;
+    var isRevealed=this.getAttribute("data-state")==="revealed";
+    if(isRevealed){
+      valEl.textContent=valEl.getAttribute("data-redacted")||"";
+      this.textContent="Reveal";
+      this.setAttribute("data-state","redacted");
+      this.style.background=b;
+      this.style.color=f;
+    } else {
+      valEl.textContent=valEl.getAttribute("data-revealed")||"";
+      this.textContent="Hide";
+      this.setAttribute("data-state","revealed");
+      this.style.background="rgba(255,184,0,.2)";
+      this.style.color=k;
+    }
+  });
+});
+
+/* v0.2.43/v0.2.44 — doc endpoint probe (auto-runs on panel render, Re-probe button repeats) */
+(function(){
+  var probeBtn=A.querySelector("#mxi-probe-endpoints-btn");
+  var probeOut=A.querySelector("#mxi-probe-endpoints-out");
+  if(!probeOut)return;
+
+  function renderResults(report){
+    var html='<div style="font-size:10px;color:'+x+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">RESULTS · '+report.reachableCount+'/'+report.results.length+' reachable</div>';
+    report.results.forEach(function(r){
+      var badge,badgeBg,badgeFg;
+      if(r.status===0){badge="NETWORK";badgeBg="rgba(153,153,153,.15)";badgeFg="#999";}
+      else if(r.reachable){badge=String(r.status)+" REACHABLE";badgeBg="rgba(255,90,90,.15)";badgeFg="#FF5A5A";}
+      else if(r.status===401||r.status===403){badge=String(r.status)+" AUTH-GATED";badgeBg="rgba(255,184,0,.15)";badgeFg="#FFB800";}
+      else{badge=String(r.status)+" OK";badgeBg="rgba(45,156,94,.15)";badgeFg="#2D9C5E";}
+      html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:11px"><code style="background:'+w+';color:'+h+';padding:2px 6px;border-radius:4px;font-size:10px;flex:1">'+esc(r.path)+'</code><span style="font-size:9px;font-weight:600;background:'+badgeBg+';color:'+badgeFg+';padding:2px 6px;border-radius:3px;letter-spacing:.4px">'+badge+'</span></div>';
+    });
+    if(report.reachableCount>0){
+      html+='<div style="font-size:10px;color:'+x+';margin-top:8px;line-height:1.5"><strong style="color:'+f+'">What this means:</strong> reachable doc endpoints expose your app\'s API surface. In production, <code style="background:'+w+';padding:1px 4px;border-radius:3px">/rest-doc/</code>, <code style="background:'+w+';padding:1px 4px;border-radius:3px">/odata-doc/</code>, <code style="background:'+w+';padding:1px 4px;border-radius:3px">/ws-doc/</code>, and <code style="background:'+w+';padding:1px 4px;border-radius:3px">/debugger/</code> should be disabled or auth-gated.</div>';
+    }
+    probeOut.innerHTML=html;
+  }
+
+  function runProbe(){
+    if(!window.__MxSecurity||!window.__MxSecurity.probeEndpoints){
+      probeOut.innerHTML='<div style="font-size:11px;color:'+m+'">Security module unavailable — cannot probe.</div>';
+      return;
+    }
+    probeOut.innerHTML='<div style="font-size:11px;color:'+f+';font-style:italic">Probing…</div>';
+    if(probeBtn){probeBtn.disabled=true;probeBtn.style.opacity="0.6";}
+    window.__MxSecurity.probeEndpoints().then(function(report){
+      renderResults(report);
+      if(probeBtn){probeBtn.disabled=false;probeBtn.style.opacity="";}
+    }).catch(function(err){
+      probeOut.innerHTML='<div style="font-size:11px;color:'+m+'">Probe failed: '+esc(String(err&&err.message||err))+'</div>';
+      if(probeBtn){probeBtn.disabled=false;probeBtn.style.opacity="";}
+    });
+  }
+
+  if(probeBtn)probeBtn.addEventListener("click",runProbe);
+  /* Auto-run on first render */
+  runProbe();
+})();
 
 window.__mxInspectorData=i;
 console.log("%c Mendix Inspector Pro v4.3 ","background:#0595DB;color:white;font-weight:bold",i);
@@ -1465,7 +3341,7 @@ if(inspectOutline)inspectOutline.style.opacity="0";
 }
 
 var inspectCloseBtn=null;
-function handleEscapeKey(e){if(e.key==="Escape"){if(inspectModeActive)toggleInspectMode();if(cssInspectActive)toggleCssInspectMode();if(typeof widgetInspectActive!=="undefined"&&widgetInspectActive)toggleWidgetInspectMode();if(highlightedEls.length>0)clearHighlights()}}
+function handleEscapeKey(e){if(e.key==="Escape"){if(inspectModeActive)toggleInspectMode();if(cssInspectActive)toggleCssInspectMode();if(typeof widgetInspectActive!=="undefined"&&widgetInspectActive)toggleWidgetInspectMode();if(activeOverlays.length>0)clearHighlights()}}
 document.addEventListener("keydown",handleEscapeKey);
 
 function toggleInspectMode(){
@@ -1954,7 +3830,7 @@ if(e.count>0)panelHtml+='<span class="mxi-dp-badge" style="background:'+typeColo
 panelHtml+='<span class="mxi-dp-type-badge">'+e.type+'</span>';
 panelHtml+='</div></div>';
 /* Data source indicator */
-if(e.datasource)panelHtml+='<div class="mxi-dp-entity-ds"><span style="color:'+dsColor+'">⚡</span> '+e.datasource+' data source</div>';
+if(e.datasource)panelHtml+='<div class="mxi-dp-entity-ds"><span style="color:'+dsColor+';display:inline-flex;align-items:center;gap:4px">'+icon("lightning",10)+'</span> '+e.datasource+' data source</div>';
 /* Widgets using this entity */
 if(e.widgets&&e.widgets.length>0&&e.widgets[0]){
 panelHtml+='<div class="mxi-dp-entity-widgets"><span class="mxi-dp-widgets-label">Used by:</span>';
@@ -2039,6 +3915,43 @@ if(btn){btn.style.background="";btn.style.color=""}
 }
 
 function toggleDataPanel(){
+/* v0.2.29 — Data Inspector is now embedded inside the main panel's body as
+ * a drawer that slides up from the footer. Route toggle with mount target.
+ *
+ * v0.2.47 — Removed the `mainBody.style.overflow = 'hidden'` pre-set and the
+ * setTimeout restore. They caused a scroll-lock bug: the data panel's open()
+ * records the baseline overflow to restore on close, but our pre-set polluted
+ * that baseline with 'hidden', so closing the drawer restored to 'hidden' and
+ * the user could no longer scroll. Let the data panel manage mountTarget
+ * overflow exclusively — its own save/restore is correct. */
+if (window.__MxDataPanel) {
+  var mainPanel = document.getElementById("mx-inspector-pro");
+  var mainBody = mainPanel ? mainPanel.querySelector(".mxi-body") : null;
+  if (mainBody) {
+    // The drawer is absolute-positioned inside mainBody; ensure mainBody is
+    // a positioned ancestor so the drawer anchors correctly. Overflow is
+    // managed by the data panel itself.
+    if (getComputedStyle(mainBody).position === 'static') {
+      mainBody.style.position = 'relative';
+    }
+  }
+  window.__MxDataPanel.toggle(mainBody || undefined);
+  var btn2 = document.getElementById("mxi-data-panel-btn");
+  if (btn2) {
+    var on = window.__MxDataPanel.isOpen();
+    btn2.classList.toggle("mxi-btn-active", on);
+    btn2.style.background = on ? k : "";
+    btn2.style.color = on ? w : "";
+    /* v0.2.59 — if the drawer just opened, clear any main-panel overlays
+     * so we don't end up with two overlay systems painting on the same
+     * elements. The user can still click a metric afterwards to paint
+     * fresh ones — but we force one active highlight source at a time. */
+    if (on) {
+      try { clearHighlights(); } catch (e) {}
+    }
+  }
+  return;
+}
 if(dataPanelVisible){closeDataPanel()}
 else{createDataPanel();dataPanelVisible=true;var btn=document.getElementById("mxi-data-panel-btn");if(btn){btn.style.background=k;btn.style.color=w}}
 }
@@ -2056,11 +3969,11 @@ function createWidgetInspectElements(){
 if(widgetInspectTooltip)return;
 widgetInspectTooltip=document.createElement("div");
 widgetInspectTooltip.id="mxi-widget-tooltip";
-widgetInspectTooltip.style.cssText="position:fixed;background:#141414;color:#fff;padding:16px 18px;border-radius:14px;font-family:Inter,system-ui,-apple-system,sans-serif;font-size:12px;z-index:999997;pointer-events:none;opacity:0;transition:opacity .15s;max-width:420px;min-width:320px;box-shadow:0 0 0 1px #2E2E2E,0 10px 40px rgba(0,0,0,.5);border:1px solid #2E2E2E";
+widgetInspectTooltip.style.cssText="position:fixed;background:#141414;color:#fff;padding:16px 18px;border-radius:14px;font-family:Inter,system-ui,-apple-system,sans-serif;font-size:12px;z-index:2147483640;pointer-events:none;opacity:0;transition:opacity .15s;max-width:420px;min-width:320px;box-shadow:0 0 0 1px #2E2E2E,0 10px 40px rgba(0,0,0,.5);border:1px solid #2E2E2E";
 document.body.appendChild(widgetInspectTooltip);
 widgetInspectOutline=document.createElement("div");
 widgetInspectOutline.id="mxi-widget-outline";
-widgetInspectOutline.style.cssText="position:fixed;border:2px solid #FFB800;pointer-events:none;z-index:999996;transition:all .1s ease-out;opacity:0;border-radius:4px;box-shadow:inset 0 0 0 1px rgba(255,184,0,.3)";
+widgetInspectOutline.style.cssText="position:fixed;border:2px solid #FFB800;pointer-events:none;z-index:2147483639;transition:all .1s ease-out;opacity:0;border-radius:4px;box-shadow:inset 0 0 0 1px rgba(255,184,0,.3)";
 document.body.appendChild(widgetInspectOutline);
 }
 
@@ -2250,15 +4163,66 @@ html+='<div style="font-size:10px;color:#666;margin-top:2px">'+wt.type+(entity?'
 html+='</div>';
 html+='</div>';
 if(hasData){
-html+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid #2E2E2E;text-align:center;font-size:10px;color:#888;display:flex;align-items:center;justify-content:center;gap:6px">'+icon("cursor",14)+' Click to inspect</div>';
+html+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid #2E2E2E;text-align:center;font-size:10px;color:#888;display:flex;align-items:center;justify-content:center;gap:6px">'+icon("cursor",14)+' Click to inspect · Alt+click to cycle layers</div>';
 }else{
 html+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid #2E2E2E;text-align:center;font-size:10px;color:#555">No data available</div>';
+}
+
+/* v0.2.0 — add meaningful layer stack breadcrumb */
+if (window.__MxLayerStack) {
+  try {
+    var _stack = window.__MxLayerStack.getStack(e.target);
+    if (_stack && _stack.length > 1) {
+      var _currentIdx = -1;
+      /* v0.2.3 — prefer the tracked selection (survives alt+click cycles).
+       * Fall back to widgetEl, then to default level. */
+      var _selected = window.__MxLayerStack.getSelection && window.__MxLayerStack.getSelection();
+      if (_selected) {
+        for (var _s = 0; _s < _stack.length; _s++) {
+          if (_stack[_s].element === _selected) { _currentIdx = _s; break; }
+        }
+      }
+      if (_currentIdx < 0) {
+        for (var _i = 0; _i < _stack.length; _i++) {
+          if (_stack[_i].element === widgetEl) { _currentIdx = _i; break; }
+        }
+      }
+      if (_currentIdx < 0) _currentIdx = window.__MxLayerStack.getDefaultLevel(_stack);
+      html += window.__MxLayerStack.renderBreadcrumb(_stack, _currentIdx);
+      widgetEl._mxiStack = _stack;
+      widgetEl._mxiStackIdx = _currentIdx;
+    }
+  } catch (_ex) {}
 }
 
 /* Store hasData on the element for click handler */
 widgetEl._mxiHasData=hasData;
 
 widgetInspectTooltip.innerHTML=html;
+
+/* v0.2.0 — wire up breadcrumb chip clicks */
+if (window.__MxLayerStack && widgetEl._mxiStack) {
+  widgetInspectTooltip.style.pointerEvents = "auto";
+  var _chips = widgetInspectTooltip.querySelectorAll(".mxi-stack-chip");
+  for (var _c = 0; _c < _chips.length; _c++) {
+    (function(chip) {
+      chip.addEventListener("click", function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.stopImmediatePropagation();
+        var idx = parseInt(chip.getAttribute("data-level-idx"), 10);
+        var stack = widgetEl._mxiStack;
+        if (stack && stack[idx]) {
+          window.__MxLayerStack.setSelection(stack[idx].element);
+          performWidgetInspection(stack[idx].element);
+          if (window.__MxDataPanel && window.__MxDataPanel.isOpen()) {
+            window.__MxDataPanel.focus(stack[idx].element);
+          }
+        }
+      }, true);
+    })(_chips[_c]);
+  }
+}
 /* Position tooltip */
 var ttWidth=420;
 var ttLeft=e.clientX+15;
@@ -2354,7 +4318,7 @@ content+='<div class="mxi-assoc-row" data-assoc="'+assoc.name+'" data-value="'+(
 content+='<span style="color:#777;font-family:monospace">'+shortName+'</span>';
 content+='<span style="display:flex;align-items:center;gap:6px">';
 if(hasValue){
-content+='<span style="color:#2D9C5E;font-size:9px">✓</span>';
+content+='<span style="color:#2D9C5E;display:inline-flex;align-items:center">'+icon("check",10)+'</span>';
 content+='<span class="mxi-assoc-eye" style="color:#3B99FC;display:flex;align-items:center;opacity:.6">'+icon("eye",12)+'</span>';
 }else if(pageParam){
 /* Association is empty but matches page parameter */
@@ -2580,9 +4544,62 @@ setTimeout(function(){toast.remove()},200);
 },2000);
 }
 
+/* v0.2.12 — expose old-panel helpers so the Data Inspector can reuse the exact
+ * same association-click-to-highlight behavior. One implementation, two UIs. */
+window.__mxiFindAssociatedElement = findAssociatedElement;
+window.__mxiToggleHighlight       = toggleHighlight;
+window.__mxiShowToast             = showToast;
+
 /* Mousedown handler for INPUT widgets - fires before click/focus */
 function handleWidgetInspectMousedown(e){
 if(!widgetInspectActive)return;
+
+/* v0.2.0 — Alt/Option+click cycles through the meaningful layer stack.
+ *   Plain alt+click  = outward (toward body)
+ *   shift+alt+click  = inward (toward target)
+ */
+if ((e.altKey || e.metaKey) && window.__MxLayerStack) {
+  try {
+    var nextEl = window.__MxLayerStack.nextLevel(e.target, e.shiftKey ? -1 : 1);
+    if (nextEl) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      window.__MxLayerStack.setSelection(nextEl);
+      performWidgetInspection(nextEl);
+      if (window.__MxDataPanel && window.__MxDataPanel.isOpen()) {
+        window.__MxDataPanel.focus(nextEl);
+      }
+      /* v0.2.1 — update breadcrumb chip highlight in the hover tooltip
+       * so the user sees which layer is now selected without re-hovering. */
+      try {
+        if (widgetInspectTooltip) {
+          var _stack2 = window.__MxLayerStack.getStack(e.target);
+          var _newIdx2 = -1;
+          if (_stack2) {
+            for (var _s = 0; _s < _stack2.length; _s++) {
+              if (_stack2[_s].element === nextEl) { _newIdx2 = _s; break; }
+            }
+          }
+          if (_newIdx2 >= 0 && window.__MxLayerStack.refreshBreadcrumb) {
+            window.__MxLayerStack.refreshBreadcrumb(
+              widgetInspectTooltip, _stack2, _newIdx2,
+              function (lvl) {
+                window.__MxLayerStack.setSelection(lvl.element);
+                performWidgetInspection(lvl.element);
+                if (window.__MxDataPanel && window.__MxDataPanel.isOpen()) {
+                  window.__MxDataPanel.focus(lvl.element);
+                }
+              }
+            );
+          }
+        }
+      } catch (_e2) {}
+      return false;
+    }
+  } catch (exAlt) {}
+}
+
 var target=e.target;
 
 console.log('[MXI Debug] mousedown/pointerdown on:', target.tagName, target.className);
@@ -2612,6 +4629,13 @@ console.log('[MXI Debug] Found widgetEl:', widgetEl?widgetEl.className:'null');
 if(widgetEl){
 /* Manually trigger our inspection logic */
 performWidgetInspection(widgetEl);
+/* v0.2.0 — track selection + push inspected element to Data Panel if it's open */
+if (window.__MxLayerStack) {
+  try { window.__MxLayerStack.setSelection(widgetEl); } catch (e) {}
+}
+if (window.__MxDataPanel && window.__MxDataPanel.isOpen()) {
+  try { window.__MxDataPanel.focus(widgetEl); } catch (e) {}
+}
 }
 return false;
 }
@@ -2623,6 +4647,9 @@ function setupGlobalInputInterceptor(){
 if(globalInputInterceptor)return;
 globalInputInterceptor=function(e){
 if(!widgetInspectActive)return;
+/* v0.2.13 — let alt/meta+click pass through so layer-stack cycling works
+ * even when the initial selector is an input (grey Input layer). */
+if(e.altKey||e.metaKey)return;
 var target=e.target;
 if(target.tagName==="INPUT"||target.tagName==="SELECT"||target.tagName==="TEXTAREA"||target.closest('[data-tooltip-id]')){
 console.log('[MXI Global] Intercepted:', target.tagName);
@@ -2676,13 +4703,32 @@ if(window.__MxDataExtractor&&window.__MxDataExtractor.findParentDataContainer){
 parentContainer=window.__MxDataExtractor.findParentDataContainer(widgetEl);
 }
 
-/* Open/update expanded panel */
-createExpandedPanel(widgetEl,wn,wt,entity,attributes,associations,parentContainer,mxObject);
+/* Open/update expanded panel — skip if Data Panel v2 is showing (v0.2.1) */
+if (!(window.__MxDataPanel && window.__MxDataPanel.isOpen())) {
+  createExpandedPanel(widgetEl,wn,wt,entity,attributes,associations,parentContainer,mxObject);
+}
+
+/* v0.2.0 — track selection + notify Data Panel if open */
+if (window.__MxLayerStack) {
+  try { window.__MxLayerStack.setSelection(widgetEl); } catch (e) {}
+}
+if (window.__MxDataPanel && window.__MxDataPanel.isOpen()) {
+  try { window.__MxDataPanel.focus(widgetEl); } catch (e) {}
+}
 }
 
 /* Click handler for widget inspect */
 function handleWidgetInspectClick(e){
 if(!widgetInspectActive)return;
+
+/* v0.2.13 — alt/meta+click is handled by the mousedown handler (layer-stack cycling).
+ * The click event still fires, but we must NOT hide the tooltip or mutate state here
+ * or the hover tooltip vanishes after each alt+click and the user has to re-hover. */
+if(e.altKey||e.metaKey){
+  e.preventDefault();
+  e.stopPropagation();
+  return;
+}
 
 var target=e.target;
 
@@ -2760,13 +4806,18 @@ parentContainer=window.__MxDataExtractor.findParentDataContainer(widgetEl);
 if(widgetInspectTooltip)widgetInspectTooltip.style.opacity="0";
 if(widgetInspectOutline)widgetInspectOutline.style.opacity="0";
 
-/* Create/update panel */
-createExpandedPanel(widgetEl,wn,wt,entity,attributes,associations,parentContainer,mxObject);
+/* v0.2.5 — if Data Inspector is open, route there instead of old panel */
+if (window.__MxDataPanel && window.__MxDataPanel.isOpen()) {
+  try { window.__MxDataPanel.focus(widgetEl); } catch (_e) {}
+} else {
+  /* Create/update old panel only if Data Inspector isn't available */
+  createExpandedPanel(widgetEl,wn,wt,entity,attributes,associations,parentContainer,mxObject);
+}
 }
 
 function toggleWidgetInspectMode(){
+/* v0.2.4 — button is optional now; can be triggered from Data Inspector */
 var btn=document.getElementById("mxi-widget-inspect-btn");
-if(!btn)return;
 widgetInspectActive=!widgetInspectActive;
 if(widgetInspectActive){
 /* Turn off other inspect modes */
@@ -2779,9 +4830,7 @@ document.addEventListener("click",handleWidgetInspectClick,true);
 document.addEventListener("mousedown",handleWidgetInspectMousedown,true);
 document.addEventListener("pointerdown",handleWidgetInspectMousedown,true);
 setupGlobalInputInterceptor();
-btn.style.background=k;
-btn.style.color=w;
-btn.innerHTML=icon("crosshair",16)+' ON';
+if(btn){btn.style.background=k;btn.style.color=w;btn.innerHTML=icon("crosshair",16)+' ON';}
 document.body.style.cursor="crosshair";
 if(!widgetInspectCloseBtn){
 widgetInspectCloseBtn=document.createElement("button");
@@ -2793,6 +4842,24 @@ widgetInspectCloseBtn.onclick=toggleWidgetInspectMode;
 document.body.appendChild(widgetInspectCloseBtn);
 }
 widgetInspectCloseBtn.style.display="block";
+/* v0.2.4 — minimize the main MxInspector panel while Inspect is active so it
+ * doesn't block the page. Restored on deactivation. */
+var mainPanel=document.getElementById("mx-inspector-pro");
+if(mainPanel){
+  mainPanel.setAttribute("data-mxi-minimized","true");
+  mainPanel.style.transition="max-height .22s cubic-bezier(.2,.9,.3,1)";
+  /* v0.2.33 — stash explicit height and force height:68px inline so a
+   * previously-resized panel collapses reliably */
+  if(mainPanel.style.height){mainPanel.setAttribute("data-mxi-saved-height",mainPanel.style.height)}
+  mainPanel.style.height="68px";
+  mainPanel.style.maxHeight="68px";
+  mainPanel.style.minHeight="0";
+  mainPanel.style.overflow="hidden";
+  var mainBody=mainPanel.querySelector(".mxi-body");
+  if(mainBody)mainBody.style.display="none";
+  var mainFooter=mainPanel.querySelector(".mxi-footer");
+  if(mainFooter)mainFooter.style.display="none";
+}
 }else{
 document.removeEventListener("mousemove",handleWidgetInspectHover,true);
 document.removeEventListener("mouseout",handleWidgetInspectOut,true);
@@ -2802,16 +4869,86 @@ document.removeEventListener("pointerdown",handleWidgetInspectMousedown,true);
 removeGlobalInputInterceptor();
 closeExpandedPanel();
 destroyWidgetInspectElements();
-btn.style.background="";
-btn.style.color="";
-btn.innerHTML=icon("crosshair",16)+' Inspect';
+if(btn){btn.style.background="";btn.style.color="";btn.innerHTML=icon("crosshair",16)+' Inspect';}
+/* v0.2.19 — also clear the Data Inspector panel's inspect icon active state
+ * so Escape key properly resets both entry points. */
+var dpBtn=document.getElementById("mxi-dp2-inspect");
+if(dpBtn)dpBtn.classList.remove("active");
 document.body.style.cursor="";
 if(widgetInspectCloseBtn)widgetInspectCloseBtn.style.display="none";
+/* v0.2.4 — restore the main MxInspector panel */
+var mainPanel2=document.getElementById("mx-inspector-pro");
+if(mainPanel2&&mainPanel2.getAttribute("data-mxi-minimized")==="true"){
+  mainPanel2.removeAttribute("data-mxi-minimized");
+  mainPanel2.style.maxHeight="";
+  mainPanel2.style.overflow="";
+  mainPanel2.style.minHeight="";
+  mainPanel2.style.height="";
+  /* v0.2.31 — restore saved height if set */
+  var savedH2=mainPanel2.getAttribute("data-mxi-saved-height");
+  if(savedH2){mainPanel2.style.height=savedH2;mainPanel2.removeAttribute("data-mxi-saved-height")}
+  var mainBody2=mainPanel2.querySelector(".mxi-body");
+  if(mainBody2)mainBody2.style.display="";
+  var mainFooter2=mainPanel2.querySelector(".mxi-footer");
+  if(mainFooter2)mainFooter2.style.display="";
+}
 }
 }
 
-var widgetInspectBtn=document.getElementById("mxi-widget-inspect-btn");
-if(widgetInspectBtn)widgetInspectBtn.onclick=toggleWidgetInspectMode;
+/* v0.2.4 — expose so Data Inspector can trigger inspect mode */
+window.__mxiToggleWidgetInspect = toggleWidgetInspectMode;
+window.__mxiIsWidgetInspectActive = function(){return widgetInspectActive;};
+
+/* v0.2.6 — Double-click on the main panel header toggles minimize/expand.
+ * Replaces the v0.2.4 single-click restore which interfered with drag-to-move. */
+(function setupMainHeaderDoubleClickToggle(){
+  document.addEventListener("dblclick",function(e){
+    var p=document.getElementById("mx-inspector-pro");
+    if(!p||!p.contains(e.target))return;
+    /* Only react to double-clicks on the header area, not body/footer */
+    var header=p.querySelector(".mxi-header");
+    if(!header||!header.contains(e.target))return;
+    /* Ignore double-clicks on interactive header elements (buttons) */
+    if(e.target.closest("button"))return;
+
+    var isMinimized=p.getAttribute("data-mxi-minimized")==="true";
+    p.style.transition="max-height .22s cubic-bezier(.2,.9,.3,1)";
+    var mainBody=p.querySelector(".mxi-body");
+    var mainFooter=p.querySelector(".mxi-footer");
+
+    if(isMinimized){
+      /* Expand */
+      p.style.maxHeight="";
+      p.style.overflow="";
+      p.style.minHeight="";
+      p.style.height="";
+      /* v0.2.31 — restore explicit height saved at minimize time */
+      var savedH=p.getAttribute("data-mxi-saved-height");
+      if(savedH){p.style.height=savedH;p.removeAttribute("data-mxi-saved-height")}
+      if(mainBody)mainBody.style.display="";
+      if(mainFooter)mainFooter.style.display="";
+      p.removeAttribute("data-mxi-minimized");
+      p.setAttribute("data-mxi-user-restored","true");
+    }else{
+      /* Minimize */
+      /* v0.2.33 — the bug was that after a resize, `height` is inline and takes
+       * priority over `max-height`. Setting `height=""` alone isn't enough if
+       * other inline styles remain. Set height directly to the target value. */
+      if(p.style.height){p.setAttribute("data-mxi-saved-height",p.style.height)}
+      p.style.height="68px";
+      p.style.maxHeight="68px";
+      p.style.minHeight="0";
+      p.style.overflow="hidden";
+      if(mainBody)mainBody.style.display="none";
+      if(mainFooter)mainFooter.style.display="none";
+      p.setAttribute("data-mxi-minimized","true");
+      p.removeAttribute("data-mxi-user-restored");
+    }
+  },true);
+})();
+
+/* v0.2.4 — widget inspect is no longer wired to a footer button.
+ * It is triggered from the Data Inspector panel instead. */
 
 /* ESCAPE KEY - Close panel first, then inspect modes */
 function handleEscapeKey(e){
@@ -2854,16 +4991,121 @@ function getCurrentPage(){var pg="";if(window.mx&&mx.ui&&mx.ui.getContentForm){t
 var lastPage=getCurrentPage(),lastWidgets=document.querySelectorAll('[class*="mx-name-"]').length;
 
 function checkForChanges(){var curPage=getCurrentPage(),curWidgets=document.querySelectorAll('[class*="mx-name-"]').length;if(curPage!==lastPage||Math.abs(curWidgets-lastWidgets)>50){console.log("%c Inspector: Refreshing... ","background:#0595DB;color:white");lastPage=curPage;lastWidgets=curWidgets;refresh()}}
-function refresh(){cleanup();clearHighlights();if(clearBtn.parentNode)clearBtn.remove();A.remove();setTimeout(function(){if(window.__mxInspectorRun)window.__mxInspectorRun()},300)}
+function refresh(){
+/* v0.2.71 — Snapshot UI state before teardown so the rebuilt panel can
+ * restore scroll position, which sections are open, which insights are
+ * expanded, and which <details> elements are open. Restore runs at the
+ * end of the IIFE on an 80ms delay. */
+try {
+  var snap = { openSections: [], expandedKeys: [], openDetails: [], scrollTop: 0 };
+  var body = A.querySelector(".mxi-body");
+  if (body) snap.scrollTop = body.scrollTop || 0;
+  A.querySelectorAll(".mxi-section.open").forEach(function(s){
+    var id = s.getAttribute("data-section-id");
+    if (id) snap.openSections.push(id);
+  });
+  A.querySelectorAll(".mxi-insight.expanded").forEach(function(ins){
+    var k = ins.getAttribute("data-highlight-key");
+    if (k) snap.expandedKeys.push(k);
+  });
+  A.querySelectorAll("details[open][data-details-id]").forEach(function(d){
+    snap.openDetails.push(d.getAttribute("data-details-id"));
+  });
+  window.__mxiUiSnapshot = snap;
+} catch(e){}
+/* v0.2.30 — if the Data Inspector is embedded inside the main panel, close
+ * it via closeForRefresh so its "was open" session flag survives. After the
+ * main panel rebuilds, __mxInspectorRun will re-read the flag and re-open. */
+try { if (window.__MxDataPanel && window.__MxDataPanel.isOpen && window.__MxDataPanel.isOpen()) { window.__MxDataPanel.closeForRefresh(); } } catch(e){}
+cleanup();clearHighlights();if(clearBtn.parentNode)clearBtn.remove();A.remove();var _or2=document.getElementById(MXI_INS_OVERLAY_ROOT_ID);if(_or2)_or2.remove();var _os2=document.getElementById(MXI_INS_OVERLAY_STYLE_ID);if(_os2)_os2.remove();setTimeout(function(){if(window.__mxInspectorRun)window.__mxInspectorRun()},300)}
 function onNav(){setTimeout(checkForChanges,300)}
 
 window.addEventListener("hashchange",onNav);
 window.addEventListener("popstate",onNav);
 var checkInterval=setInterval(checkForChanges,2000);
 
+/* v0.2.71 — UI snapshot restore.
+ * After the panel has rebuilt, re-apply whichever sections/insights/details
+ * were open plus the body scrollTop, from window.__mxiUiSnapshot. 80ms
+ * delay so the DOM is fully settled. */
+try {
+  if (window.__mxiUiSnapshot && typeof A !== "undefined" && A) {
+    var __snap = window.__mxiUiSnapshot;
+    setTimeout(function(){
+      try {
+        (__snap.openSections || []).forEach(function(id){
+          var sec = A.querySelector('.mxi-section[data-section-id="' + id + '"]');
+          if (sec && !sec.classList.contains("open")) {
+            var c = sec.querySelector(".mxi-section-content");
+            var a = sec.querySelector(".mxi-arrow");
+            if (c) c.style.display = "block";
+            if (a) a.style.transform = "rotate(0)";
+            sec.classList.add("open");
+          }
+        });
+        (__snap.expandedKeys || []).forEach(function(key){
+          var ins = A.querySelector('.mxi-insight[data-highlight-key="' + key + '"]');
+          if (ins) ins.classList.add("expanded");
+        });
+        (__snap.openDetails || []).forEach(function(id){
+          var d = A.querySelector('details[data-details-id="' + id + '"]');
+          if (d) d.setAttribute("open", "");
+        });
+        if (__snap.scrollTop) {
+          var body = A.querySelector(".mxi-body");
+          if (body) body.scrollTop = __snap.scrollTop;
+        }
+      } catch(e) {}
+      delete window.__mxiUiSnapshot;
+    }, 80);
+  }
+} catch(e){}
+
+/* v0.2.71 — Surgical Data Sources autorefresh.
+ *
+ * Fires every 5s while the Data Sources section is open and the tab is
+ * visible. Rebuilds ONLY the section content via renderDataSourcesHTML()
+ * with fresh tracker data — no full-panel flicker, header/tooltip state
+ * preserved.
+ *
+ * Skips when:
+ *   - tab is hidden
+ *   - section is collapsed (no point rebuilding invisible HTML)
+ *   - tracker isn't up yet (first ms of page load)
+ *   - a user-facing copy flash is mid-animation (don't stomp the green) */
+var autorefreshInterval = setInterval(function(){
+  if (document.visibilityState !== "visible") return;
+  try {
+    if (typeof A === "undefined" || !A) return;
+    var sec = A.querySelector('.mxi-section[data-section-id="data"]');
+    if (!sec || !sec.classList.contains("open")) return;
+    if (!window.__mxiPerf || !window.__mxiPerf.getSummary) return;
+    if (sec.querySelector(".mxi-ds-copy.mxi-ds-copied")) return;
+
+    var fresh = window.__mxiPerf.getSummary();
+    if (!fresh || !fresh.dataSourceCalls) return;
+    var freshDsc = fresh.dataSourceCalls;
+
+    /* Match the sort order the initial render used */
+    if (freshDsc.microflows)   freshDsc.microflows.sort(function(a,b){return b.count-a.count});
+    if (freshDsc.otherActions) freshDsc.otherActions.sort(function(a,b){return b.count-a.count});
+    if (freshDsc.operations)   freshDsc.operations.sort(function(a,b){return b.count-a.count});
+
+    /* Keep i in sync so PDF export / insight highlights see latest numbers */
+    i.dataSourceCalls = freshDsc;
+    if (fresh.dsDebug) i.dsDebug = fresh.dsDebug;
+
+    var content = sec.querySelector(".mxi-section-content");
+    if (!content) return;
+    content.innerHTML = renderDataSourcesHTML(freshDsc);
+    /* Re-wire the per-row copy buttons on the fresh markup. The existing
+     * listener is delegated on document, so no re-wire needed actually. */
+  } catch(e){}
+}, 5000);
+
 var observer=null;
 try{var target=document.querySelector('.mx-page,[class*="mx-name-page"],#content');if(target){observer=new MutationObserver(function(mutations){if(mutations.some(function(m){return m.addedNodes.length>3||m.removedNodes.length>3}))setTimeout(checkForChanges,200)});observer.observe(target,{childList:true,subtree:true})}}catch(x){}
 
-function cleanup(){window.removeEventListener("hashchange",onNav);window.removeEventListener("popstate",onNav);clearInterval(checkInterval);if(observer)observer.disconnect()}
+function cleanup(){window.removeEventListener("hashchange",onNav);window.removeEventListener("popstate",onNav);clearInterval(checkInterval);clearInterval(autorefreshInterval);if(observer)observer.disconnect()}
 
 }();

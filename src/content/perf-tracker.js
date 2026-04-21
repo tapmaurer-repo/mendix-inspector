@@ -12,7 +12,7 @@
   
   // Initialize performance data store
   var perf = window.__mxiPerf = {
-    version: '1.2',
+    version: '1.7',
     trackerStart: performance.now(),
     isRecording: true,  // Recording state
     
@@ -76,10 +76,45 @@
       totalTransferred: 0,
       totalRequests: 0
     },
-    
+
+    // v1.3 — Data source tracking. Parses /xas/ request bodies to
+    // extract the microflows, XPath retrieves, and associations that
+    // actually fire on each page load. This is the real answer to
+    // "what's powering this page" — far more useful than inferring
+    // from DOM classes.
+    //
+    // v1.5 — Mendix 10 React client support. The new protocol replaced
+    // `executeaction` with opaque `runtimeOperation` calls that carry
+    // only an operationId hash (no microflow name). We can still count
+    // repeats per operationId, classify by shape (list vs single vs
+    // committed write), and attempt best-effort name resolution.
+    dataSources: {
+      microflows: {},           // classic: { "Mod.DS_Name": {count, totalDuration, lastStatus} }
+      xpathRetrieves: 0,        // direct DB retrieve_by_xpath calls
+      associationRetrieves: 0,  // retrieve_by_association calls
+      commits: 0,               // commit/update calls
+      otherActions: {},         // non-DS microflow actions (user-triggered)
+      operations: {},           // v1.5: Mendix 10 runtimeOperation bucket, keyed by operationId
+      sessionInits: 0           // v1.5: get_session_data calls (usually 1 per page)
+    },
+
+    // v1.4 — Debug ring buffer. When the data source parser doesn't
+    // catch anything, this captures enough about observed requests to
+    // figure out why. The inspector can surface this as a collapsible
+    // diagnostic panel. Samples are trimmed to keep memory bounded.
+    dsDebug: {
+      sampleUrls: [],            // last N unique URL patterns observed on POST/XHR with body
+      sampleBodies: [],          // last 5 raw body heads (truncated to 300 chars)
+      postCount: 0,              // total POSTs with bodies
+      parsedOk: 0,               // bodies that JSON-parsed successfully
+      parsedFail: 0,             // bodies that didn't parse
+      hadActionField: 0,         // parsed bodies with action or actions keys
+      unknownActionTypes: {}     // action types seen but not classified: { "someAction": count }
+    },
+
     // Errors captured
     errors: [],
-    
+
     // SPA navigation tracking
     navigations: [],
     currentNavigation: 0
@@ -114,6 +149,31 @@
     perf.currentNavigation++;
     // IMPORTANT: Reset the byName cache so widgets can be tracked again on new navigation
     perf.widgets.byName = {};
+    // v1.6 — Reset dataSources too. Previously the DS_ microflow /
+    // runtimeOperation buckets accumulated across SPA navigations, so
+    // the Data Sources section would show calls from all pages visited
+    // since the extension loaded — misleading. Now each navigation
+    // starts with a clean slate, matching the current-page framing used
+    // throughout the rest of the inspector.
+    perf.dataSources = {
+      microflows: {},
+      xpathRetrieves: 0,
+      associationRetrieves: 0,
+      commits: 0,
+      otherActions: {},
+      operations: {},
+      sessionInits: 0
+    };
+    // Also clear debug ring buffer so it reflects only this page's traffic
+    perf.dsDebug = {
+      sampleUrls: [],
+      sampleBodies: [],
+      postCount: 0,
+      parsedOk: 0,
+      parsedFail: 0,
+      hadActionField: 0,
+      unknownActionTypes: {}
+    };
     console.log('%c[MxInspector] Navigation #' + perf.currentNavigation + ' - metrics reset', 'color: #FFB800');
   };
   
@@ -379,28 +439,183 @@
   }
   
   // ===== XHR/FETCH INTERCEPTION for Mendix API calls =====
-  
+
+  // v1.4 — Classify a single Mendix action entry. Now tracks unknown
+  // action types so we can surface what newer Mendix versions send.
+  // v1.5 — Mendix 10 runtimeOperation support added. Since the protocol
+  // no longer carries microflow names, we classify operations by the
+  // shape of their `options` payload (list retrieve, paginated, sorted,
+  // filtered, single).
+  function inferOperationShape(options) {
+    // Returns a short human-readable kind string for a runtimeOperation's
+    // options. Helps the UI say something useful even without names.
+    if (!options || typeof options !== 'object') return 'call';
+    if (typeof options.amount === 'number' && typeof options.offset === 'number') {
+      var parts = ['list'];
+      parts.push('×' + options.amount);
+      if (Array.isArray(options.sort) && options.sort.length) parts.push('sorted');
+      if (options.extraXpath) parts.push('filtered');
+      if (options.wantCount) parts.push('+count');
+      return parts.join(' ');
+    }
+    if (Array.isArray(options.sort) && options.sort.length) return 'sorted call';
+    return 'call';
+  }
+
+  function classifyMxAction(action, entryMeta) {
+    if (!action || typeof action !== 'object') return;
+    var actType = action.action;
+    var params = action.params || {};
+    if (!actType) return;
+
+    if (actType === 'executeaction') {
+      var name = params.actionname || '(unknown)';
+      var lastSeg = name.split('.').pop() || '';
+      var isDS = lastSeg.indexOf('DS_') === 0;
+      var bucket = isDS ? perf.dataSources.microflows : perf.dataSources.otherActions;
+      if (!bucket[name]) {
+        bucket[name] = { count: 0, totalDuration: 0, lastStatus: 0, firstSeen: entryMeta.time };
+      }
+      bucket[name].count++;
+      bucket[name].totalDuration += (entryMeta.duration || 0);
+      bucket[name].lastStatus = entryMeta.status || 0;
+    } else if (actType === 'retrieve_by_xpath' || actType === 'retrieveByXPath') {
+      perf.dataSources.xpathRetrieves++;
+    } else if (actType === 'retrieve_by_association' || actType === 'retrieveByAssociation') {
+      perf.dataSources.associationRetrieves++;
+    } else if (actType === 'commit' || actType === 'update' || actType === 'create') {
+      perf.dataSources.commits++;
+    } else if (actType === 'runtimeOperation') {
+      // v1.5 — Mendix 10 React client. operationId is an opaque hash;
+      // we can't resolve to a microflow name client-side. We bucket by
+      // operationId so repeats (the nested-call fingerprint) still
+      // surface, and classify by options shape to give the UI something
+      // meaningful to show. Commits/changes inside options bump those
+      // counters too.
+      var opId = action.operationId || '(unknown)';
+      var op = perf.dataSources.operations[opId];
+      if (!op) {
+        op = perf.dataSources.operations[opId] = {
+          opId: opId,
+          count: 0,
+          totalDuration: 0,
+          lastStatus: 0,
+          shape: inferOperationShape(action.options),
+          hasChanges: false,
+          firstSeen: entryMeta.time
+        };
+      }
+      op.count++;
+      op.totalDuration += (entryMeta.duration || 0);
+      op.lastStatus = entryMeta.status || 0;
+      // If the action carries changes/objects, it's writing data too
+      if (action.changes && Object.keys(action.changes).length > 0) {
+        op.hasChanges = true;
+        perf.dataSources.commits++;
+      }
+    } else if (actType === 'get_session_data') {
+      perf.dataSources.sessionInits++;
+    } else {
+      // Unknown action type — track so we know what to add to the classifier
+      perf.dsDebug.unknownActionTypes[actType] = (perf.dsDebug.unknownActionTypes[actType] || 0) + 1;
+    }
+  }
+
+  // v1.4 — More forgiving body parser. Mendix /xas/ bodies are typically
+  // {action, params} or {actions: [...]} but newer clients may wrap them
+  // differently. We try a few common shapes before giving up.
+  function parseMxRequestBody(bodyStr, entryMeta) {
+    if (!bodyStr || typeof bodyStr !== 'string') return false;
+    var parsed;
+    try { parsed = JSON.parse(bodyStr); } catch (e) { perf.dsDebug.parsedFail++; return false; }
+    perf.dsDebug.parsedOk++;
+    if (!parsed || typeof parsed !== 'object') return false;
+    var matched = false;
+    if (Array.isArray(parsed.actions)) {
+      perf.dsDebug.hadActionField++;
+      parsed.actions.forEach(function(a) { classifyMxAction(a, entryMeta); });
+      matched = true;
+    } else if (parsed.action) {
+      perf.dsDebug.hadActionField++;
+      classifyMxAction(parsed, entryMeta);
+      matched = true;
+    }
+    // v1.4 — some newer Mendix 10 calls send a bare array of actions
+    else if (Array.isArray(parsed) && parsed.length && parsed[0] && parsed[0].action) {
+      perf.dsDebug.hadActionField++;
+      parsed.forEach(function(a) { classifyMxAction(a, entryMeta); });
+      matched = true;
+    }
+    return matched;
+  }
+
+  // v1.4 — Decide if an observed request looks like a Mendix data call.
+  // Broader than just /xas/ URL matching — also accepts anything with a
+  // JSON body containing an action/actions field. This covers Mendix 10
+  // clients that route through /_mxprotocol/, /runtime/, or custom paths.
+  function looksLikeMxCall(url, body) {
+    if (!url) return false;
+    // Classic: URL contains /xas
+    if (url.indexOf('xas') > -1) return true;
+    // Mendix 10 candidates
+    if (url.indexOf('_mxprotocol') > -1) return true;
+    if (url.indexOf('/runtime/') > -1) return true;
+    // JSON body with action field — catches anything else
+    if (body && typeof body === 'string' && body.length < 100000) {
+      try {
+        var p = JSON.parse(body);
+        if (p && (p.action || p.actions || (Array.isArray(p) && p.length && p[0] && p[0].action))) {
+          return true;
+        }
+      } catch (e) {}
+    }
+    return false;
+  }
+
+  // v1.4 — Capture a URL pattern + body sample for debug visibility.
+  // Only keeps a bounded ring buffer, so long sessions don't leak memory.
+  function recordDsDebug(url, body) {
+    if (!url) return;
+    perf.dsDebug.postCount++;
+    // Strip query string for URL pattern — reduces noise
+    var urlPattern = url.split('?')[0];
+    // Take only the last 3 path segments to keep patterns readable
+    var parts = urlPattern.split('/');
+    var shortPattern = parts.length > 4 ? '.../' + parts.slice(-3).join('/') : urlPattern;
+    if (perf.dsDebug.sampleUrls.indexOf(shortPattern) === -1 && perf.dsDebug.sampleUrls.length < 8) {
+      perf.dsDebug.sampleUrls.push(shortPattern);
+    }
+    if (body && typeof body === 'string' && perf.dsDebug.sampleBodies.length < 5) {
+      perf.dsDebug.sampleBodies.push(body.length > 300 ? body.substring(0, 300) + '…' : body);
+    }
+  }
+
   // Intercept XHR
   var origXHROpen = XMLHttpRequest.prototype.open;
   var origXHRSend = XMLHttpRequest.prototype.send;
-  
+
   XMLHttpRequest.prototype.open = function(method, url) {
     this._mxiUrl = url;
     this._mxiMethod = method;
     this._mxiStart = null;
+    this._mxiBody = null;
     return origXHROpen.apply(this, arguments);
   };
-  
-  XMLHttpRequest.prototype.send = function() {
+
+  XMLHttpRequest.prototype.send = function(body) {
     var xhr = this;
     xhr._mxiStart = performance.now();
-    
+    xhr._mxiBody = body;
+
     xhr.addEventListener('loadend', function() {
       if (!perf.isRecording) return;
-      if (xhr._mxiUrl && xhr._mxiUrl.indexOf('xas') > -1) {
+      var url = xhr._mxiUrl || '';
+      var bodyStr = (typeof xhr._mxiBody === 'string') ? xhr._mxiBody : null;
+      var isMx = looksLikeMxCall(url, bodyStr);
+      if (isMx) {
         var duration = performance.now() - xhr._mxiStart;
         var entry = {
-          url: xhr._mxiUrl,
+          url: url,
           method: xhr._mxiMethod,
           duration: Math.round(duration),
           status: xhr.status,
@@ -409,25 +624,69 @@
           navigation: perf.currentNavigation
         };
         perf.network.xhrCalls.push(entry);
-        
+
         if (duration > 1000) {
           perf.network.slowRequests.push(entry);
         }
         if (xhr.status >= 400) {
           perf.network.failedRequests.push(entry);
         }
+
+        // Debug: always record this call so we can see what's flowing
+        recordDsDebug(url, bodyStr);
+        parseMxRequestBody(bodyStr, entry);
       }
     });
-    
+
     return origXHRSend.apply(this, arguments);
   };
+
+  // v1.4 — fetch interception with the same looser matching as XHR.
+  if (typeof window.fetch === 'function') {
+    var origFetch = window.fetch;
+    window.fetch = function(resource, init) {
+      var url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
+      var bodyStr = null;
+      if (init && typeof init.body === 'string') bodyStr = init.body;
+      var isMx = looksLikeMxCall(url, bodyStr);
+      var start = performance.now();
+      var p = origFetch.apply(this, arguments);
+      if (isMx) {
+        p.then(function(res) {
+          if (!perf.isRecording) return res;
+          var duration = performance.now() - start;
+          var entry = {
+            url: url,
+            method: (init && init.method) || 'POST',
+            duration: Math.round(duration),
+            status: res.status,
+            time: start,
+            isMendixApi: true,
+            navigation: perf.currentNavigation
+          };
+          perf.network.fetchCalls.push(entry);
+          recordDsDebug(url, bodyStr);
+          parseMxRequestBody(bodyStr, entry);
+          return res;
+        }).catch(function() { /* swallow — don't break consumer */ });
+      }
+      return p;
+    };
+  }
   
   // ===== SPA NAVIGATION TRACKING =====
   
-  var lastUrl = location.href;
-  var lastPageTitle = document.title;
+  /* v0.2.71 — Navigation detection rewritten.
+   *
+   * Old logic reset on URL OR title OR mxPage change. Title fires
+   * CONSTANTLY on a live Mendix page (notification updates, DataView
+   * re-renders), wiping the per-navigation buckets so 20 calls showed
+   * as 1 a second later. New rule: reset only on Mendix page PATH
+   * change, falling back to URL pathname (explicitly excluding ?query
+   * and #hash) when Mendix isn't initialized yet. */
+  var lastPagePath = '';
   var lastMxPage = '';
-  
+
   function getMxPageName() {
     try {
       if (window.mx && mx.ui && mx.ui.getContentForm) {
@@ -437,34 +696,43 @@
     } catch(e) {}
     return '';
   }
-  
+
+  function getCurrentPageSignature() {
+    var mxPage = getMxPageName();
+    if (mxPage) return 'mx:' + mxPage;
+    return 'path:' + (location.pathname || '');
+  }
+
+  lastPagePath = getCurrentPageSignature();
+  lastMxPage   = getMxPageName();
+
   function checkNavigation() {
-    var currentUrl = location.href;
-    var currentTitle = document.title;
+    var currentSig    = getCurrentPageSignature();
     var currentMxPage = getMxPageName();
-    
-    // Check for URL change OR title change OR Mendix page change
-    var hasNavigated = (currentUrl !== lastUrl) || 
-                       (currentTitle !== lastPageTitle && currentTitle.length > 0) ||
-                       (currentMxPage !== lastMxPage && currentMxPage.length > 0);
-    
-    if (hasNavigated) {
-      perf.navigations.push({
-        from: lastUrl,
-        to: currentUrl,
-        fromTitle: lastPageTitle,
-        toTitle: currentTitle,
-        mxPage: currentMxPage,
-        time: performance.now()
-      });
-      
-      // Reset per-navigation metrics
-      perf.resetNavigation();
-      
-      lastUrl = currentUrl;
-      lastPageTitle = currentTitle;
-      lastMxPage = currentMxPage;
+
+    if (currentSig === lastPagePath) return;
+
+    // If Mendix just became available, upgrade silently without reset
+    var upgradedFromFallback = lastPagePath.indexOf('path:') === 0
+                            && currentSig.indexOf('mx:') === 0
+                            && currentMxPage && !lastMxPage;
+    if (upgradedFromFallback) {
+      lastPagePath = currentSig;
+      lastMxPage   = currentMxPage;
+      return;
     }
+
+    perf.navigations.push({
+      from: lastPagePath,
+      to: currentSig,
+      mxPage: currentMxPage,
+      time: performance.now()
+    });
+
+    perf.resetNavigation();
+
+    lastPagePath = currentSig;
+    lastMxPage   = currentMxPage;
   }
   
   window.addEventListener('popstate', checkNavigation);
@@ -532,7 +800,47 @@
       totalTransferred: perf.network.totalTransferred,
       slowRequests: perf.network.slowRequests.slice(0, 10),
       failedRequests: perf.network.failedRequests,
-      
+
+      // v1.3 — Data source calls captured from /xas/ request bodies.
+      // v1.5 — Added operations (Mendix 10) and sessionInits.
+      // v1.6 — navigationNumber marks which navigation the data is from
+      // so the inspector can show "current page only" scope clearly.
+      // Copied (not referenced) so the inspector doesn't mutate tracker state.
+      dataSourceCalls: {
+        microflows: Object.keys(perf.dataSources.microflows).map(function(name) {
+          var e = perf.dataSources.microflows[name];
+          return { name: name, count: e.count, totalDuration: e.totalDuration, lastStatus: e.lastStatus };
+        }),
+        otherActions: Object.keys(perf.dataSources.otherActions).map(function(name) {
+          var e = perf.dataSources.otherActions[name];
+          return { name: name, count: e.count, totalDuration: e.totalDuration };
+        }),
+        operations: Object.keys(perf.dataSources.operations).map(function(opId) {
+          var e = perf.dataSources.operations[opId];
+          return { opId: opId, count: e.count, totalDuration: e.totalDuration, shape: e.shape, hasChanges: e.hasChanges, lastStatus: e.lastStatus };
+        }),
+        xpathRetrieves: perf.dataSources.xpathRetrieves,
+        associationRetrieves: perf.dataSources.associationRetrieves,
+        commits: perf.dataSources.commits,
+        sessionInits: perf.dataSources.sessionInits,
+        navigationNumber: perf.currentNavigation
+      },
+
+      // v1.4 — Debug info for when capture misses everything. Surfaced
+      // in the Data Sources section when no calls were classified, so the
+      // user can see exactly what URLs and bodies we observed.
+      dsDebug: {
+        sampleUrls: perf.dsDebug.sampleUrls.slice(),
+        sampleBodies: perf.dsDebug.sampleBodies.slice(),
+        postCount: perf.dsDebug.postCount,
+        parsedOk: perf.dsDebug.parsedOk,
+        parsedFail: perf.dsDebug.parsedFail,
+        hadActionField: perf.dsDebug.hadActionField,
+        unknownActionTypes: Object.keys(perf.dsDebug.unknownActionTypes).map(function(t) {
+          return { type: t, count: perf.dsDebug.unknownActionTypes[t] };
+        })
+      },
+
       // Errors
       errorCount: perf.errors.length,
       errors: perf.errors.slice(0, 10),
@@ -544,6 +852,6 @@
     };
   };
   
-  console.log('%c[MxInspector] Performance tracker v1.2 active (React SPA support)', 'color: #FFB800; font-weight: bold');
+  console.log('%c[MxInspector] Performance tracker v1.6 active (Mendix 10 runtimeOperation support + per-navigation DS reset)', 'color: #FFB800; font-weight: bold');
   
 })();
