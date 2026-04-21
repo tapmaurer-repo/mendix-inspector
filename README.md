@@ -2,9 +2,11 @@
 
 > Chrome DevTools for Mendix — inspect widgets, view object data, debug page structure, profile performance, scan security, and audit accessibility. All from one dockable panel.
 
-A Chrome extension that drops a dockable panel onto any running Mendix app. Open the Data Inspector to browse every entity, object, attribute, and association on the page with search, drill, and hover-highlight. Watch a live-updating list of the microflows and runtime operations your page is firing. Run a client-side security scan. Drag the panel around, double-click the header to minimize. Works with the Mendix 10+ React client. No server calls — reads directly from the client-side React Fiber tree.
+A Chrome/Edge extension that drops a dockable panel onto any running Mendix app. Open the Data Inspector to browse every entity, object, attribute, and association on the page with search, drill, and hover-highlight. Watch a live-updating list of the microflows and runtime operations your page is firing. Run a client-side security scan. Drag the panel around, double-click the header to minimize. Works with the Mendix 10+ React client. No server calls — reads directly from the client-side React Fiber tree.
 
 ![Chrome](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=googlechrome&logoColor=white)
+![Edge](https://img.shields.io/badge/Edge-Extension-0078D7?logo=microsoftedge&logoColor=white)
+![Firefox](https://img.shields.io/badge/Firefox-Planned%20v0.3.0-lightgrey?logo=firefox&logoColor=white)
 ![Mendix 10](https://img.shields.io/badge/Mendix-10-0595DB)
 ![Status](https://img.shields.io/badge/Status-Beta-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -65,10 +67,12 @@ Reads data from the client-side React Fiber tree — no server API calls. Works 
 
 1. Download the latest release ZIP from [Releases](../../releases)
 2. Unzip to a local folder
-3. Open Chrome → `chrome://extensions/`
+3. Open Chrome → `chrome://extensions/` (or Edge → `edge://extensions/`)
 4. Enable **Developer mode** (toggle in top-right)
 5. Click **Load unpacked**
 6. Select the `src` folder from the unzipped release
+
+> **Firefox support is on the v0.3.0 roadmap.** The extension uses `world: 'MAIN'` injection, which Firefox supports from v128+ — porting needs a separate manifest for Firefox's MV3 flavor.
 
 ---
 
@@ -123,6 +127,8 @@ window.__mxiPerf.getSummary()
 ## Roadmap
 
 ### v0.3.0
+- **Firefox support** — port to Firefox's WebExtensions flavor of Manifest V3 (second manifest, `browser_specific_settings`, event-page background instead of service worker). Requires Firefox 128+ for `world: 'MAIN'`. Submit to AMO
+- **Edge Add-ons Store listing** — the existing build already runs unpacked in Edge (it's Chromium); this is just the store submission so Edge users get one-click install
 - **Accessibility simulator** — overlay the page through color-blindness (protanopia, deuteranopia, tritanopia) and other visual-impairment filters (low vision, cataract simulation) so you can see what non-sighted-ideal users would see
 - **Enhanced CSS Inspector** — show CSS variables with computed values (e.g. `color: #FF5A5A` from `var(--brand-danger)`)
 - **Association deep inspection** — click to fetch and display associated object's attributes
@@ -148,6 +154,7 @@ window.__mxiPerf.getSummary()
 - **Entity relationship diagram** — visualize associations between entities on page
 
 ### Experimental Ideas
+- **Safari support** — would require wrapping the extension in a native macOS app via Xcode + `xcrun safari-web-extension-converter`, plus a paid Apple Developer account. Only worth doing if there's actual demand from Mendix devs on Safari, which so far there isn't
 - **Microflow tracer** — highlight which microflows were triggered by an action (Mendix 10 limits apply — we'd only see opaque op IDs)
 - **Access rule checker** — show which access rules apply to current user for displayed entities
 - **Widget dependency tree** — show which widgets depend on which data sources
@@ -157,7 +164,7 @@ window.__mxiPerf.getSummary()
 
 ## Changelog
 
-### 0.2.0
+### 0.2.0-beta
 - **Data Inspector** — separate dockable panel with entity drill (Page Params → Context → On Page → Cached), search/filter, pulse-highlight on hover, click-to-copy attribute values, dirty/new state badges, system members surfaced with distinct styling, column highlighting for grid cells
 - **Data Sources section** — real `/xas/` call capture (deduped by operationId on Mendix 10, microflow name on classic), inferred shape badges ("list ×50 sorted"), repeat-count coloring for nested-data-source detection, writable-call flag
 - **Live autorefresh** — Data Sources section updates every 5 seconds while open, surgical innerHTML swap (no whole-panel flicker), open tooltips and scroll position survive
@@ -225,7 +232,7 @@ mendix-inspector/
 │   │   └── perf-tracker.js           # document_start perf + network hook + SPA nav detection (~857 lines)
 │   └── icons/
 ├── releases/
-│   └── mendix-inspector-v0.2.0.zip
+│   └── mendix-inspector-v0.2.0-beta.zip
 └── docs/
     └── screenshots/
 ```
