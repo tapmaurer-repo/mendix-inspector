@@ -1131,7 +1131,6 @@
         '<div class="mxi-dp2-title">' +
           '<span class="mxi-dp2-dot"></span>' +
           '<span>Data Inspector</span>' +
-          '<span class="mxi-dp2-version">v0.2.42</span>' +
         '</div>' +
         '<div class="mxi-dp2-actions">' +
           '<button class="mxi-dp2-iconbtn" id="mxi-dp2-refresh" title="Refresh scan">⟳</button>' +
