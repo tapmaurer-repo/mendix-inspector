@@ -2,12 +2,13 @@
 
 > Chrome DevTools for Mendix — inspect widgets, view object data, debug page structure, profile performance, scan security, and audit accessibility. All from one dockable panel.
 
-A Chrome/Edge extension that drops a dockable panel onto any running Mendix app. Open the Data Inspector to browse every entity, object, attribute, and association on the page with search, drill, and hover-highlight. Watch a live-updating list of the microflows and runtime operations your page is firing. Run a client-side security scan. Drag the panel around, double-click the header to minimize. Works with the Mendix 10+ React client. No server calls — reads directly from the client-side React Fiber tree.
+A Chrome/Edge extension that drops a dockable panel onto any running Mendix app. Open the Data Inspector to browse every entity, object, attribute, and association on the page with search, drill, and hover-highlight. Watch a live-updating list of the microflows and runtime operations your page is firing. Run a client-side security scan. Drag the panel around, double-click the header to minimize. Works with the Mendix 10+ and Mendix 11 React client. No server calls — reads directly from the client-side React Fiber tree.
 
 ![Chrome](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=googlechrome&logoColor=white)
 ![Edge](https://img.shields.io/badge/Edge-Extension-0078D7?logo=microsoftedge&logoColor=white)
 ![Firefox](https://img.shields.io/badge/Firefox-Planned%20v0.3.0-lightgrey?logo=firefox&logoColor=white)
 ![Mendix 10](https://img.shields.io/badge/Mendix-10-0595DB)
+![Mendix 11](https://img.shields.io/badge/Mendix-11-0595DB)
 ![Status](https://img.shields.io/badge/Status-Beta-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -21,7 +22,7 @@ Uncomment when demo GIF is added
 ## Features
 
 ### Data Inspector
-Separate dockable panel (click the **Data** button at the bottom) that lists every entity, object, and attribute rendered or cached on the current page. Four sections: Page Parameters → Context Objects → On Page → Other Cached. Search/filter across everything. Hover an entity row → its containers pulse on the page with colored outlines plus floating labels. Click an attribute → value copies to clipboard. Dirty/new state badges on each object. System members shown separately with dashed border and italic values.
+Separate dockable panel (click the **Data** button at the bottom) that lists every entity, object, and attribute rendered or cached on the current page. Four sections: Page Parameters → Context Objects → On Page → Other Cached. Search/filter across everything. Hover an entity row → its containers pulse on the page with colored outlines plus floating labels. Click an attribute → value copies to clipboard. Dirty/new state badges on each object. System members shown separately with dashed border and italic values. **Auto-refreshes on SPA navigation** — no more clicking ↻ after every page change.
 
 ### Data Extraction
 Extracts data directly from React Fiber (`memoizedProps`) for Mendix 10+. Uses the `Symbol(mxObject)` pattern to retrieve actual MxObject data from list items. Handles Mendix's nested value wrappers — Big.js decimals, wrapped primitives, `displayValue` patterns.
@@ -60,6 +61,9 @@ One click to export the full report — health score, insights, all sections, me
 
 ### Strict Mode Compatible
 Reads data from the client-side React Fiber tree — no server API calls. Works normally when Mendix Strict Mode is enabled, since Strict Mode only restricts `mx.data.get()` and similar client APIs.
+
+### Non-Mendix-Site Friendly
+Injects on every site (because custom Mendix domains exist and we need to catch bootstrap traffic), but auto-unhooks its XHR/fetch wrappers after 3 seconds on pages that don't look like Mendix. Third-party error trackers on unrelated sites won't attribute CSP or network errors to the extension.
 
 ---
 
@@ -115,7 +119,7 @@ window.__mxiPerf.getSummary()
 
 ## Known Limitations (Beta)
 
-- **Only tested on Mendix 10 React client.** Should work on any React-based Mendix version, but not verified yet on Mendix 11 or on late Mendix 9 apps running React. If you run it on those versions, let me know what you see.
+- **Tested on Mendix 10 & 11 React client.** Should work on any React-based Mendix version. Mendix 11's DataGrid2 highlighting is fully supported as of v0.2.1 (the row element uses `display: contents`, which needs a special geometry pass — handled). If you run it on late Mendix 9 React apps and hit rough spots, let me know.
 - **Not tested against the Dojo client (Mendix 7–9).** The codebase still has Dojo fallback paths from earlier versions but I haven't recently exercised them. Expect rough edges.
 - **Mendix 10 microflow names are opaque.** The React client uses runtime operation IDs over the wire — real microflow names aren't resolvable client-side. The Data Sources section shows the hash + inferred shape instead.
 - **Input widgets** — click events sometimes intercepted by tooltip libraries.
@@ -135,7 +139,7 @@ window.__mxiPerf.getSummary()
 - **Widget Performance Profiler** — measure render time per widget, identify slowest widgets
 - **Conditional visibility reasons** — show which elements are hidden and why
 - **Export to JSON** — alongside PDF
-- **Mendix 11 + Mendix 7–9 Dojo verification** — test, document, fix
+- **Mendix 7–9 Dojo verification** — test, document, fix
 
 ### v0.4.0+
 - **Pixel Measure Tool** — crosshair icon, drag to measure X/Y coordinates and distances
@@ -163,6 +167,29 @@ window.__mxiPerf.getSummary()
 ---
 
 ## Changelog
+
+### 0.2.1-beta
+First patch on top of the 0.2.0 beta. Focus was on polish, Mendix 11 DataGrid2 support, and the "stuck with old data" problem on navigation.
+
+**Mendix 11 DataGrid2 highlighting** — previously hover/click on an object in the Data Inspector would either do nothing visible or paint a "datagrid tetris" block across the whole grid. Three compounding bugs, all fixed:
+- `scanAllDataContainers` used substring class matching (`[class*="widget-datagrid"]`) which picked up the outer container *plus* all 13 internal parts (`widget-datagrid-top-bar`, `widget-datagrid-content`, `widget-datagrid-grid-body`, etc.) as separate "containers". Each then produced phantom row elements. Switched to exact class-token matching (`.widget-datagrid`) + outermost-wins dedup
+- `findRowElementsForContainer` couldn't disambiguate Mendix 11 rows — they render as just `<div class="tr" role="row">` with no "header"/"datagrid-row" hook. Rewrote around `[role="row"][aria-selected]` (the one reliable data-row disambiguator) plus a body-rowgroup scope, with `closest()`-based nested-container guard
+- Mendix 11's `.table .tr { display: contents }` means the row element has no geometry — `getBoundingClientRect()` returns 0×0, so the overlay hid itself. Added a child-rect union fallback (`measureTarget()`) in both overlay systems
+
+**Data Inspector auto-refresh on SPA nav** — no more clicking ↻ after page changes. Four triggers funnel into a two-phase refresh (500ms + 1500ms, second catches slow-loading pages):
+- `hashchange` — classic client / deep-link URLs
+- `popstate` — browser back/forward + some pushState routers  
+- 1.5s poll on `mx.ui.getContentForm().path` — catches React-router pushState nav
+- MutationObserver on the Mendix page container with 400ms debounce / 15-node threshold — catches nav where URL doesn't change but content does (same-path re-renders, popups, tab switchers)
+
+**Empty-page clearing** — navigating to a page with no data containers now shows the "No data found" placeholder instead of leftover Mendix client-cache entries from the previous page. Mendix's `mx.data.objectCache` persists across pages; when the new page has no own data and no page params, we now suppress the cached section too.
+
+**Polish**:
+- Insight info button on hover/click — dark grey background with a severity-coloured border (yellow for warning, red for error, blue for info, green for success) instead of an always-yellow background that became unreadable and flipped the danger colour
+- Section headers — hover background now respects the 16px rounded corners
+- Persistent (pinned) highlight fades out when you hover a different object instead of stacking two highlights on the page. Same-set check keeps the pin when hovering back over the expanded row
+
+**Non-Mendix-site friendliness** — perf-tracker still injects on every site (for custom-domain Mendix apps) but auto-unhooks its XHR/fetch wrappers after 3 seconds if it hasn't detected any Mendix signatures (`/xas/`, `_mxprotocol`, `window.mx`, `mxclientsystem` script). Third-party error trackers on non-Mendix pages no longer see our frame in their stack traces.
 
 ### 0.2.0-beta
 - **Data Inspector** — separate dockable panel with entity drill (Page Params → Context → On Page → Cached), search/filter, pulse-highlight on hover, click-to-copy attribute values, dirty/new state badges, system members surfaced with distinct styling, column highlighting for grid cells
@@ -224,15 +251,16 @@ mendix-inspector/
 │   ├── manifest.json
 │   ├── background.js                 # Service worker — injects scripts on icon click
 │   ├── content/
-│   │   ├── inspector.js              # Main UI — panel shell, sections, PDF export (~4,975 lines)
-│   │   ├── mx-data-extractor.js      # React Fiber + Dojo data extraction (~1,029 lines)
+│   │   ├── inspector.js              # Main UI — panel shell, sections, PDF export (~5,131 lines)
+│   │   ├── mx-data-extractor.js      # React Fiber + Dojo data extraction (~1,069 lines)
 │   │   ├── mxi-layer-stack.js        # Layer-stack module (currently dormant — click-through behaviour didn't land cleanly, kept for future reference)
-│   │   ├── mxi-data-panel.js         # Data Inspector (search, drill, pulse highlight) (~2,522 lines)
+│   │   ├── mxi-data-panel.js         # Data Inspector (search, drill, pulse highlight, SPA-nav auto-refresh) (~2,726 lines)
 │   │   ├── mxi-security.js           # Security scanner (secret patterns, CVEs, endpoint probe) (~563 lines)
-│   │   └── perf-tracker.js           # document_start perf + network hook + SPA nav detection (~857 lines)
+│   │   └── perf-tracker.js           # document_start perf + network hook + SPA nav detection + non-Mendix-site auto-unhook (~910 lines)
 │   └── icons/
 ├── releases/
-│   └── mendix-inspector-v0.2.0-beta.zip
+│   ├── mendix-inspector-v0.2.0-beta.zip
+│   └── mendix-inspector-v0.2.1-beta.zip
 └── docs/
     └── screenshots/
 ```

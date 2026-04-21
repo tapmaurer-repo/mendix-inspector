@@ -594,7 +594,27 @@
   var origXHROpen = XMLHttpRequest.prototype.open;
   var origXHRSend = XMLHttpRequest.prototype.send;
 
-  XMLHttpRequest.prototype.open = function(method, url) {
+  // v0.2.1 — Mendix-site gating. perf-tracker runs on <all_urls> because we
+  // can't know ahead of time whether a tab is serving a Mendix app (custom
+  // domains exist) and we need to catch Mendix bootstrap traffic. Problem:
+  // on pure non-Mendix pages, the wrapper still sat in every XHR stack
+  // frame — so third-party error trackers (Sentry et al.) on unrelated
+  // sites blamed the extension for CSP violations and network errors that
+  // had nothing to do with it.
+  //
+  // Mitigation: install the wrappers immediately (Mendix bootstrap XHR
+  // still gets caught), but UNHOOK them after a detection window if no
+  // Mendix signature has appeared. Any one of these promotes the page to
+  // "confirmed Mendix" and pins the wrappers indefinitely:
+  //   - a looksLikeMxCall() XHR or fetch (the primary signal)
+  //   - window.mx / window.mxui / window.MxApp global appears
+  //   - a <script src="…mxclientsystem…"> shows up in the DOM
+  // After 3s with none of those, the wrappers are restored to their
+  // originals so subsequent XHR/fetch calls run with clean native stacks.
+  var _mxSiteConfirmed = false;
+  var _myXHROpen, _myXHRSend, _myFetch, origFetch = null;
+
+  _myXHROpen = XMLHttpRequest.prototype.open = function(method, url) {
     this._mxiUrl = url;
     this._mxiMethod = method;
     this._mxiStart = null;
@@ -602,7 +622,7 @@
     return origXHROpen.apply(this, arguments);
   };
 
-  XMLHttpRequest.prototype.send = function(body) {
+  _myXHRSend = XMLHttpRequest.prototype.send = function(body) {
     var xhr = this;
     xhr._mxiStart = performance.now();
     xhr._mxiBody = body;
@@ -613,6 +633,7 @@
       var bodyStr = (typeof xhr._mxiBody === 'string') ? xhr._mxiBody : null;
       var isMx = looksLikeMxCall(url, bodyStr);
       if (isMx) {
+        _mxSiteConfirmed = true;
         var duration = performance.now() - xhr._mxiStart;
         var entry = {
           url: url,
@@ -643,12 +664,13 @@
 
   // v1.4 — fetch interception with the same looser matching as XHR.
   if (typeof window.fetch === 'function') {
-    var origFetch = window.fetch;
-    window.fetch = function(resource, init) {
+    origFetch = window.fetch;
+    _myFetch = window.fetch = function(resource, init) {
       var url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
       var bodyStr = null;
       if (init && typeof init.body === 'string') bodyStr = init.body;
       var isMx = looksLikeMxCall(url, bodyStr);
+      if (isMx) _mxSiteConfirmed = true;
       var start = performance.now();
       var p = origFetch.apply(this, arguments);
       if (isMx) {
@@ -673,6 +695,37 @@
       return p;
     };
   }
+
+  // v0.2.1 — Detection poll + unhook (see Mendix-site gating comment above).
+  // Unhook only if OUR wrapper is still the active one on the prototype —
+  // if something else wrapped on top of us, we leave it alone rather than
+  // reaching past their wrapper and removing it.
+  function _sniffMendixSignals() {
+    try {
+      if (window.mx || window.mxui || window.MxApp) return true;
+      if (document.querySelector('script[src*="mxclientsystem"]')) return true;
+    } catch (e) {}
+    return false;
+  }
+  function _unhookTrackers() {
+    try { if (XMLHttpRequest.prototype.open === _myXHROpen) XMLHttpRequest.prototype.open = origXHROpen; } catch (e) {}
+    try { if (XMLHttpRequest.prototype.send === _myXHRSend) XMLHttpRequest.prototype.send = origXHRSend; } catch (e) {}
+    try { if (origFetch && window.fetch === _myFetch)        window.fetch              = origFetch;    } catch (e) {}
+  }
+  (function () {
+    var detectStart = performance.now();
+    var detectTimer = setInterval(function () {
+      if (_mxSiteConfirmed || _sniffMendixSignals()) {
+        _mxSiteConfirmed = true;
+        clearInterval(detectTimer);
+        return;
+      }
+      if (performance.now() - detectStart > 3000) {
+        clearInterval(detectTimer);
+        if (!_mxSiteConfirmed) _unhookTrackers();
+      }
+    }, 200);
+  })();
   
   // ===== SPA NAVIGATION TRACKING =====
   

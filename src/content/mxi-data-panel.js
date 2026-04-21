@@ -189,16 +189,36 @@
   function findRowElementsForContainer(container, type) {
     if (!container) return null;
 
+    // v0.2.1 — DataGrid2 fast-path. In Mendix 11 every data row carries
+    // `aria-selected` (true/false) while header rows don't — the single
+    // most reliable disambiguator in the DOM. Query directly, scoped to
+    // this container, and return if we got any hits. This sidesteps the
+    // Strategy 1 filter loop entirely for the common case, avoiding any
+    // closest()-based nested-container checks that were mis-behaving
+    // against the `widget-datagrid-grid-body` rowgroup wrapper.
+    if (type === 'DataGrid2') {
+      var ariaRows = container.querySelectorAll('[role="row"][aria-selected]');
+      if (ariaRows.length > 0) {
+        return Array.prototype.slice.call(ariaRows);
+      }
+    }
+
     // Strategy 1 — class-based row selectors, at any depth within this container.
     // Guard: if a row-like element is inside a DEEPER data container, it belongs
     // to that inner container, not this one. Skip it.
     // v0.2.21 — Modern Mendix listviews render as <ul><li class="mx-name-index-N">.
     // `.mx-listview-item` was the old Mendix 6-7 class; current apps use mx-name-index.
+    //
+    // v0.2.1 — DataGrid2 legacy fallback. The fast-path above handles
+    // Mendix 11+. This keeps Mendix 9/10 working via the `widget-datagrid-row`
+    // class token (tilde-equals exact-token match). Broader `[role="row"]`
+    // fallback also included as a safety net.
     var selectorsByType = {
       ListView:     'li[class*="mx-name-index-"], .mx-listview-item, [class*="widget-listview-item"]',
       Gallery:      'li[class*="mx-name-index-"], [class*="widget-gallery-item"]',
       TemplateGrid: 'li[class*="mx-name-index-"], .mx-templategrid-item',
-      DataGrid2:    '[role="row"][class*="row"], [class*="widget-datagrid-row"]'
+      DataGrid2:    '[class~="widget-datagrid-row"], ' +
+                    '[class*="grid-body"] [role="row"], [class*="table-content"] [role="row"]'
     };
     var sel = selectorsByType[type];
     if (sel) {
@@ -206,22 +226,14 @@
       var filtered = [];
       for (var m = 0; m < matched.length; m++) {
         var el = matched[m];
-        // Walk up from el to container; if we encounter ANOTHER data container
-        // between them, this row belongs to the inner one — skip.
-        var p = el.parentElement;
-        var isOurs = true;
-        while (p && p !== container) {
-          if (p.classList && (
-                p.classList.contains('mx-listview') ||
-                p.classList.contains('mx-dataview') ||
-                p.classList.contains('mx-templategrid') ||
-                /widget-datagrid|widget-gallery/.test(p.className || ''))) {
-            isOurs = false;
-            break;
-          }
-          p = p.parentElement;
+
+        // Reject chrome rows (header/filter/rowgroup/pagination/paging word tokens)
+        if (type === 'DataGrid2') {
+          var cls = (el.className && typeof el.className === 'string') ? el.className : '';
+          if (/\b(header|filter|rowgroup|pagination|paging)\b/i.test(cls)) continue;
         }
-        if (isOurs) filtered.push(el);
+
+        filtered.push(el);
       }
       if (filtered.length > 0) return filtered;
     }
@@ -663,9 +675,41 @@
       chip.textContent = label;
       overlay.appendChild(chip);
     }
+
+    // v0.2.1 — Mendix 11 DataGrid2 sets `display: contents` on `.tr` rows
+    // (see _datagrid.scss → `.table .tr { display: contents }`). This means
+    // the row element itself generates NO box — the cells lay out as direct
+    // children of the grid. getBoundingClientRect() on a display:contents
+    // element returns 0×0, so our overlay would hide itself. Workaround:
+    // if the target's own rect is empty, union the rects of its children.
+    // The resulting box visually matches the row the user sees.
+    function measureTarget() {
+      var r = target.getBoundingClientRect();
+      if (r.width > 0 || r.height > 0) return r;
+
+      // Zero-size — walk immediate children and union their rects
+      var kids = target.children;
+      if (!kids || kids.length === 0) return r;
+
+      var left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+      var any = false;
+      for (var k = 0; k < kids.length; k++) {
+        var kr = kids[k].getBoundingClientRect();
+        if (kr.width === 0 && kr.height === 0) continue;
+        if (kr.left   < left)   left   = kr.left;
+        if (kr.top    < top)    top    = kr.top;
+        if (kr.right  > right)  right  = kr.right;
+        if (kr.bottom > bottom) bottom = kr.bottom;
+        any = true;
+      }
+      if (!any) return r;
+      return { left: left, top: top, right: right, bottom: bottom,
+               width: right - left, height: bottom - top };
+    }
+
     function reposition() {
       if (!target || !target.getBoundingClientRect) return;
-      var r = target.getBoundingClientRect();
+      var r = measureTarget();
       // If element is entirely off-screen or has zero size, hide
       if (r.width === 0 && r.height === 0) {
         overlay.style.opacity = '0';
@@ -768,6 +812,38 @@
     if (!state.persistentHighlight) return;
     (state.persistentHighlight.overlays || []).forEach(destroyOverlay);
     state.persistentHighlight = null;
+  }
+
+  // v0.2.1 — Fade out the pinned (persistent) highlight when the user's mouse
+  // moves on to a DIFFERENT entity/object row. Keeps the pin when hovering the
+  // same object (no-op). The fade is ~250ms of opacity transition so it feels
+  // like the previous selection is politely stepping aside — it doesn't snap
+  // away. Called BEFORE the new transient highlight is created so both happen
+  // concurrently.
+  function fadePersistentHighlightIfDifferent(newElements) {
+    if (!state.persistentHighlight) return;
+    var pinnedEls = state.persistentHighlight.elements || [];
+    // Same-set check — keep the pin if the hover targets the exact same
+    // elements as the pin (e.g. user hovers back over their own expanded row).
+    if (pinnedEls.length && newElements && pinnedEls.length === newElements.length) {
+      var allMatch = true;
+      for (var i = 0; i < pinnedEls.length; i++) {
+        if (newElements.indexOf(pinnedEls[i]) === -1) { allMatch = false; break; }
+      }
+      if (allMatch) return;
+    }
+    // Different target → fade out and unpin.
+    var pinned = state.persistentHighlight;
+    state.persistentHighlight = null;   // unpin eagerly so the RAF tick stops
+    (pinned.overlays || []).forEach(function (o) {
+      if (o && o.node) {
+        o.node.style.transition = 'opacity .25s ease-out';
+        o.node.style.opacity = '0';
+      }
+    });
+    setTimeout(function () {
+      (pinned.overlays || []).forEach(destroyOverlay);
+    }, 260);
   }
 
   // ------------------------------------------------------------
@@ -1714,6 +1790,7 @@
         var entry = lookup.find(function (x) { return x.entity === entity; });
         if (entry && entry.containers.length) {
           var els = entry.containers.map(function (c) { return c.element; }).filter(Boolean);
+          fadePersistentHighlightIfDifferent(els);
           highlightElements(els, entry.color, entry.shortName);
         }
       });
@@ -1739,6 +1816,7 @@
           var els = (o.elements && o.elements.length) ? o.elements.filter(Boolean)
                                                        : (o.element ? [o.element] : []);
           if (els.length) {
+            fadePersistentHighlightIfDifferent(els);
             highlightElements(els, entry.color, entry.shortName + ' #' + (oIdx + 1));
           }
         }
@@ -2243,6 +2321,17 @@
     var classified = classifyEntries(cacheData, state.entries);
     state.pageParams = classified.pageParams;
     state.cached     = classified.cached;
+
+    // v0.2.1 — When the current page has NO on-page data containers and NO
+    // page params, suppress the "cached" section too. Otherwise the Mendix
+    // client-side object cache keeps showing leftover objects from a
+    // previous page (the cache doesn't get invalidated on navigation),
+    // which reads as "stuck with old data" when the user expected the
+    // empty-state placeholder. Cached is supplementary context — it's
+    // useful alongside actual page data, not on its own.
+    if (state.entries.length === 0 && state.pageParams.length === 0) {
+      state.cached = [];
+    }
   }
 
   function open(mountTarget) {
@@ -2290,6 +2379,12 @@
     runScan();
     state.open = true;
     render(); // render() sets up drag + resize
+
+    // v0.2.1 — On a fresh page load the panel auto-reopens via the session
+    // flag before Mendix has necessarily finished fetching data (slow
+    // microflows, heavy datasources). Schedule a deferred re-scan so the
+    // initial stale/empty state self-heals without the user hitting ↻.
+    try { if (window.__MxDataPanel && window.__MxDataPanel._scheduleRefresh) window.__MxDataPanel._scheduleRefresh(); } catch (e) {}
   }
 
   // ------------------------------------------------------------
@@ -2516,6 +2611,116 @@
       try { unpinPersistentHighlight(); } catch (e) {}
     }
   };
+
+  // v0.2.1 — Auto-refresh the Data Inspector on SPA navigation so users don't
+  // have to click ↻ after switching pages. Multiple triggers funnel into one
+  // two-phase refresh:
+  //   1. hashchange                  — Mendix classic client / deep-link URLs
+  //   2. popstate                    — browser back/forward + some pushState routers
+  //   3. 1.5s poll on mx.ui.getContentForm().path — safety net for
+  //      navigations that don't fire either event (React-router-style
+  //      pushState, microflow-driven routes)
+  //   4. MutationObserver on the Mendix page container — catches nav events
+  //      where the URL/content-form path DOESN'T change but the content
+  //      does (same-path re-renders, tab switchers, popups that swap
+  //      content, context changes that leave the route alone)
+  //
+  // Two-phase refresh (500ms + 1500ms) — the first catches fast pages; the
+  // second catches pages where Mendix is still fetching data at the 500ms
+  // mark (slow microflows, heavy datasources). If nothing has changed, the
+  // second scan is a cheap no-op visually.
+  function _getMxPath() {
+    try {
+      if (window.mx && mx.ui && mx.ui.getContentForm) {
+        var f = mx.ui.getContentForm();
+        if (f && f.path) return f.path;
+      }
+    } catch (e) {}
+    return location.href;
+  }
+  var _lastContentPath = _getMxPath();
+  var _navRefreshTimer = null;
+  var _navRefreshTimer2 = null;
+  var _navRefreshTimer3 = null;
+
+  function _scheduleRefresh() {
+    if (!state.open) return;
+    if (_navRefreshTimer)  clearTimeout(_navRefreshTimer);
+    if (_navRefreshTimer2) clearTimeout(_navRefreshTimer2);
+    if (_navRefreshTimer3) clearTimeout(_navRefreshTimer3);
+    _navRefreshTimer = setTimeout(function () {
+      _navRefreshTimer = null;
+      if (!state.open) return;
+      try {
+        clearPageHighlight();   // transient overlays now point at stale DOM
+        refresh();              // unpin + re-scan + re-render
+      } catch (e) {
+        console.warn('[MXI] Data Inspector nav refresh failed:', e);
+      }
+    }, 500);
+    _navRefreshTimer2 = setTimeout(function () {
+      _navRefreshTimer2 = null;
+      if (!state.open) return;
+      try { refresh(); } catch (e) {}
+    }, 1500);
+    // v0.2.1 — Third phase for slow-rendering pages. When the user returns
+    // to a data-rich page from an empty one, Mendix may still be fetching
+    // datasources at 1500ms — the 3500ms retry catches that window so the
+    // inspector doesn't get stuck showing the empty placeholder from the
+    // previous page after a nav.
+    _navRefreshTimer3 = setTimeout(function () {
+      _navRefreshTimer3 = null;
+      if (!state.open) return;
+      try { refresh(); } catch (e) {}
+    }, 3500);
+  }
+
+  function _checkForNavChange() {
+    if (!state.open) return;
+    var p = _getMxPath();
+    if (!p || p === _lastContentPath) return;
+    _lastContentPath = p;
+    _scheduleRefresh();
+  }
+
+  // Events may fire a beat before mx.ui.getContentForm() catches up — 50ms
+  // breather before we read the path.
+  window.addEventListener('hashchange', function () { setTimeout(_checkForNavChange, 50); });
+  window.addEventListener('popstate',   function () { setTimeout(_checkForNavChange, 50); });
+  setInterval(_checkForNavChange, 1500);
+
+  // MutationObserver safety net — catches nav where the URL doesn't change
+  // but the page content does. Debounced 400ms so normal per-widget updates
+  // don't trigger a refresh storm, and the 15-node threshold filters out
+  // fine-grained incremental updates.
+  var _domRefreshDebounce = null;
+  try {
+    var _pageTarget = document.querySelector('.mx-page, [class*="mx-name-page"], #content');
+    if (_pageTarget) {
+      new MutationObserver(function (mutations) {
+        if (!state.open) return;
+        // Only react to substantial DOM churn — sum added+removed across
+        // this batch, require ≥15 to filter out incremental widget updates
+        var total = 0;
+        for (var i = 0; i < mutations.length; i++) {
+          total += mutations[i].addedNodes.length + mutations[i].removedNodes.length;
+          if (total >= 15) break;
+        }
+        if (total < 15) return;
+        if (_domRefreshDebounce) clearTimeout(_domRefreshDebounce);
+        _domRefreshDebounce = setTimeout(function () {
+          _domRefreshDebounce = null;
+          if (state.open) _scheduleRefresh();
+        }, 400);
+      }).observe(_pageTarget, { childList: true, subtree: true });
+    }
+  } catch (e) {}
+
+  // v0.2.1 — Expose _scheduleRefresh so open() can trigger a delayed re-scan
+  // after the panel opens. The initial scan inside open() runs synchronously,
+  // but when the panel auto-opens right after a full page load, Mendix may
+  // still be fetching data — the 500ms/1500ms re-scan catches that.
+  window.__MxDataPanel._scheduleRefresh = _scheduleRefresh;
 
   console.log('[MXI] Data Panel v2 loaded');
 })();

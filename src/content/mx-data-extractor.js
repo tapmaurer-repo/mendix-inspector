@@ -796,11 +796,29 @@
   
   /**
    * Scan all data containers on the page
+   *
+   * v0.2.1 — Two fixes:
+   * (1) Switched `[class*="widget-datagrid"]` / `[class*="widget-gallery"]`
+   *     (substring match) to `.widget-datagrid` / `.widget-gallery` (exact
+   *     class-token match). The old substring selectors matched not just the
+   *     outer Mendix DataGrid2 container but also all 13+ internal parts —
+   *     `widget-datagrid-top-bar`, `widget-datagrid-content`, `widget-datagrid-grid`,
+   *     `widget-datagrid-grid-head`, `widget-datagrid-grid-body`, `widget-datagrid-footer`,
+   *     `widget-datagrid-paging-bottom`, etc. Each one was then processed as
+   *     a separate container; their findRowElementsForContainer fallback
+   *     returned the sub-element's own children as "rows" (`widget-datagrid-tb-start`,
+   *     `widget-datagrid-tb-end`, …) and those got index-paired to data items.
+   *     Result: single-object hover lit up the top-bar, pagination, header
+   *     area, etc. in addition to the actual data row.
+   * (2) Outermost-wins dedup — if any returned container is contained by
+   *     another, drop the inner one. Defensive against true nested lists
+   *     (DataGrid2 inside a ListView row, for instance) where both would
+   *     have separate fiber datasources.
    */
   MxDataExtractor.scanAllDataContainers = function() {
     var containers = document.querySelectorAll(
       '.mx-dataview:not(.mx-dataview-content), .mx-listview, ' +
-      '[class*="widget-datagrid"], [class*="widget-gallery"], ' +
+      '.widget-datagrid, .widget-gallery, ' +
       '.mx-templategrid, .widget-tree-node, .mx-treeview'
     );
     
@@ -838,6 +856,28 @@
         results.totalObjects += data.objectCount;
       }
     });
+
+    // v0.2.1 — outermost-wins dedup. If two entries are in an ancestor
+    // relationship, keep only the outer one. Objects from the inner are
+    // the same fiber-propagated items anyway.
+    if (results.containers.length > 1) {
+      var kept = [];
+      for (var i = 0; i < results.containers.length; i++) {
+        var a = results.containers[i];
+        var isInside = false;
+        for (var j = 0; j < results.containers.length; j++) {
+          if (i === j) continue;
+          var b = results.containers[j];
+          if (b.element && b.element.contains && b.element !== a.element && b.element.contains(a.element)) {
+            // a is inside b — drop a
+            isInside = true;
+            break;
+          }
+        }
+        if (!isInside) kept.push(a);
+      }
+      results.containers = kept;
+    }
     
     return results;
   };
