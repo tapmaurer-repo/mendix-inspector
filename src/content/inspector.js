@@ -1,5 +1,5 @@
 /*! 
- * MxInspector v0.2.1-beta - Mendix Page Inspector & Debugger
+ * MxInspector v0.2.2-beta - Mendix Page Inspector & Debugger
  * Created with ❤️ by Tim Maurer (https://github.com/timmaurer)
  * 
  * MIT License - Free for personal and commercial use
@@ -814,17 +814,174 @@ e.duplicateIds=dupIds;if(dupEls.length)i.highlightTargets.duplicateIds=dupEls;
 /* ===== CONTRAST CHECKING ===== */
 function getLuminance(r,g,b){var a=[r,g,b].map(function(v){v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)});return a[0]*0.2126+a[1]*0.7152+a[2]*0.0722}
 function getContrastRatio(l1,l2){var lighter=Math.max(l1,l2),darker=Math.min(l1,l2);return(lighter+0.05)/(darker+0.05)}
-function parseColor(color){if(!color||color==="transparent"||color==="rgba(0, 0, 0, 0)"||color==="inherit")return null;var match=color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);if(match){var alpha=match[4]?parseFloat(match[4]):1;if(alpha<0.1)return null;return{r:parseInt(match[1]),g:parseInt(match[2]),b:parseInt(match[3]),a:alpha}}return null}
-function getEffectiveBg(el){var bg=null,current=el,maxDepth=10;while(current&&current!==document.body&&maxDepth-->0){var style=getComputedStyle(current);var bgColor=parseColor(style.backgroundColor);if(bgColor&&bgColor.a>=0.5){bg=bgColor;break}current=current.parentElement}return bg||{r:255,g:255,b:255,a:1}}
+function parseColor(color){
+  if(!color||color==="transparent"||color==="rgba(0, 0, 0, 0)"||color==="inherit")return null;
+  /* rgb() / rgba() — legacy format */
+  var match=color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+  if(match){
+    var alpha=match[4]?parseFloat(match[4]):1;
+    if(alpha<0.1)return null;
+    return{r:parseInt(match[1]),g:parseInt(match[2]),b:parseInt(match[3]),a:alpha};
+  }
+  /* v0.2.2 — CSS Color Level 4 color() notation, e.g. `color(srgb 0.119 0.232 0.718)` or `color(srgb 0.1 0.2 0.3 / 0.5)`.
+   * Modern browsers return this format for any color declared in a wide-gamut
+   * or srgb color space. Values are 0-1 floats (or `none` → 0).
+   * Previously we returned null for this format, which in turn made the
+   * contrast check fall back to "white background" and falsely flag any
+   * element whose theme defined colors this way (most Atlas primary buttons,
+   * Tailwind 4, many modern themes). */
+  var cm=color.match(/^color\(\s*(srgb|srgb-linear|display-p3)\s+([^\/\)]+?)(?:\s*\/\s*([\d.]+|none))?\s*\)$/i);
+  if(cm){
+    var parts=cm[2].trim().split(/\s+/);
+    if(parts.length>=3){
+      var toByte=function(v){
+        if(v==="none")return 0;
+        var f=parseFloat(v);
+        if(isNaN(f))return 0;
+        if(f<0)f=0;
+        if(f>1)f=1;
+        return Math.round(f*255);
+      };
+      var alpha2=cm[3]?(cm[3]==="none"?0:parseFloat(cm[3])):1;
+      if(isNaN(alpha2))alpha2=1;
+      if(alpha2<0.1)return null;
+      /* srgb-linear and display-p3 aren't strictly sRGB but for contrast
+       * classification they're close enough that the small error is dwarfed
+       * by the WCAG thresholds' own tolerance. */
+      return{r:toByte(parts[0]),g:toByte(parts[1]),b:toByte(parts[2]),a:alpha2};
+    }
+  }
+  /* #rgb / #rrggbb hex — occasionally returned by browsers, cheap to support */
+  var hx=color.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if(hx){
+    var h=hx[1];
+    if(h.length===3){
+      return{r:parseInt(h[0]+h[0],16),g:parseInt(h[1]+h[1],16),b:parseInt(h[2]+h[2],16),a:1};
+    }
+    return{r:parseInt(h.substring(0,2),16),g:parseInt(h.substring(2,4),16),b:parseInt(h.substring(4,6),16),a:1};
+  }
+  return null;
+}
+/* v0.2.1 — getEffectiveBg rewritten. Previously walked up the DOM looking for
+ * an opaque `background-color`. Three failure modes this missed, all producing
+ * false-positive "low contrast" flags on perfectly readable elements:
+ *
+ *   (1) Gradient backgrounds. An element with `background: linear-gradient(...)`
+ *       but no solid `background-color` reports `backgroundColor: rgba(0,0,0,0)`
+ *       to getComputedStyle. The walk-up then passed through the element,
+ *       found the page's white bg, and reported the foreground against WHITE
+ *       — regardless of the gradient's actual colors. Result: white button
+ *       text on a blue gradient = 1:1 ratio = FAIL. Now: if any ancestor
+ *       (including the element itself) has a non-`none` backgroundImage, we
+ *       can't reliably compute a contrast ratio against a gradient or pattern,
+ *       so we return null and the caller skips the element entirely (better
+ *       to miss a real issue than flag a false positive on an obviously-OK
+ *       element).
+ *
+ *   (2) Alpha compositing. An element with rgba(100, 100, 100, 0.6) sitting
+ *       on a white page should be composited with the white before measuring
+ *       contrast. Previously we either accepted (alpha >= 0.5) and ignored
+ *       the transparency, or rejected (alpha < 0.5) and walked past. Now:
+ *       if we find a translucent bg above another color, we alpha-blend them
+ *       and return the composite.
+ *
+ *   (3) Pseudo-element backgrounds. Some themes paint the button via `::before`
+ *       with a full-size absolute-positioned element. We can't detect that
+ *       from the DOM side — but if the button itself has a non-`none`
+ *       background-image, that's the tell and we bail via (1).
+ *
+ * Returns null when the background is unreliable (gradient, image, pattern).
+ * Caller treats null as "don't flag — we can't be sure". */
+function getEffectiveBg(el){
+  var composite=null;
+  var current=el;
+  var maxDepth=10;
+  while(current && current!==document.body && maxDepth-->0){
+    var style=getComputedStyle(current);
+    /* (1) Bail on gradients / background-images — contrast is indeterminate */
+    var bgImg=style.backgroundImage;
+    if(bgImg && bgImg!=="none" && bgImg!=="initial"){
+      return null;
+    }
+    var bgColor=parseColor(style.backgroundColor);
+    if(bgColor){
+      if(bgColor.a>=0.95){
+        /* Fully (or nearly-fully) opaque — blend with any translucent layer
+         * we've accumulated so far, then we're done. */
+        if(composite){
+          var a=composite.a;
+          composite={
+            r:Math.round(composite.r*a + bgColor.r*(1-a)),
+            g:Math.round(composite.g*a + bgColor.g*(1-a)),
+            b:Math.round(composite.b*a + bgColor.b*(1-a)),
+            a:1
+          };
+        }else{
+          composite={r:bgColor.r,g:bgColor.g,b:bgColor.b,a:1};
+        }
+        return composite;
+      }else if(bgColor.a>=0.05){
+        /* Translucent — accumulate and keep walking to find what's beneath */
+        if(composite){
+          /* two translucent layers stack: out = src*src.a + dst*(1-src.a) */
+          var srcA=composite.a;
+          var dstA=bgColor.a;
+          /* composite is on TOP of bgColor (child is above parent) */
+          composite={
+            r:Math.round(composite.r*srcA + bgColor.r*dstA*(1-srcA)),
+            g:Math.round(composite.g*srcA + bgColor.g*dstA*(1-srcA)),
+            b:Math.round(composite.b*srcA + bgColor.b*dstA*(1-srcA)),
+            a:srcA + dstA*(1-srcA)
+          };
+        }else{
+          composite={r:bgColor.r,g:bgColor.g,b:bgColor.b,a:bgColor.a};
+        }
+      }
+    }
+    current=current.parentElement;
+  }
+  /* Fell through to body without finding an opaque layer — composite over white */
+  if(composite){
+    var a=composite.a;
+    return {r:Math.round(composite.r*a + 255*(1-a)),
+            g:Math.round(composite.g*a + 255*(1-a)),
+            b:Math.round(composite.b*a + 255*(1-a)),
+            a:1};
+  }
+  return {r:255,g:255,b:255,a:1};
+}
 function isElementVisible(el){try{var rect=el.getBoundingClientRect();if(rect.width===0||rect.height===0)return false;var style=getComputedStyle(el);if(style.display==="none"||style.visibility==="hidden"||style.opacity==="0")return false;if(rect.top>window.innerHeight||rect.bottom<0||rect.left>window.innerWidth||rect.right<0)return false;return true}catch(e){return false}}
 
 var contrastEls=[],smallFontEls=[];
 var textEls=document.querySelectorAll("p,span,a,li,td,th,label,h1,h2,h3,h4,h5,h6,button");
-textEls.forEach(function(el){try{if(!isElementVisible(el))return;var text=(el.textContent||"").trim();if(!text||text.length<2)return;var style=getComputedStyle(el);var fontSize=parseFloat(style.fontSize);
+textEls.forEach(function(el){try{if(!isElementVisible(el))return;
+/* v0.2.1 — Skip elements whose text is wholly contained in child elements
+ * that will be tested separately. Previously both the button AND its inner
+ * span were visited, and if either had a different effective bg we'd get
+ * duplicate/inconsistent results. Now: if the element's direct text-node
+ * content is empty (text lives in children), skip — the children handle
+ * their own check. Exception: <button> with a text node is common and
+ * should still be measured against the button's own bg. */
+var hasDirectText=false;
+for(var n=0;n<el.childNodes.length;n++){
+  var nd=el.childNodes[n];
+  if(nd.nodeType===3 && nd.nodeValue && nd.nodeValue.trim().length>=2){hasDirectText=true;break}
+}
+if(!hasDirectText)return;
+var text=(el.textContent||"").trim();if(!text||text.length<2)return;var style=getComputedStyle(el);var fontSize=parseFloat(style.fontSize);
 /* Check for small font size - WCAG recommends minimum 12px */
 if(fontSize<12&&smallFontEls.length<15)smallFontEls.push(el);
 /* Check contrast */
-var fg=parseColor(style.color);if(!fg)return;var bg=getEffectiveBg(el);var fgLum=getLuminance(fg.r,fg.g,fg.b);var bgLum=getLuminance(bg.r,bg.g,bg.b);var ratio=getContrastRatio(fgLum,bgLum);var isBold=parseInt(style.fontWeight)>=700;var isLargeText=(fontSize>=18.66)||(fontSize>=14&&isBold);var minRatio=isLargeText?3:4.5;if(ratio<minRatio&&contrastEls.length<15)contrastEls.push(el)}catch(ex){}});
+var fg=parseColor(style.color);if(!fg)return;var bg=getEffectiveBg(el);
+/* v0.2.1 — null bg means gradient/image/unknown — don't flag, can't be sure */
+if(!bg)return;
+var fgLum=getLuminance(fg.r,fg.g,fg.b);var bgLum=getLuminance(bg.r,bg.g,bg.b);var ratio=getContrastRatio(fgLum,bgLum);var isBold=parseInt(style.fontWeight)>=700;var isLargeText=(fontSize>=18.66)||(fontSize>=14&&isBold);var minRatio=isLargeText?3:4.5;
+/* v0.2.1 — 0.1 tolerance on the ratio. WCAG defines 4.5:1 as the minimum,
+ * but floating-point rounding in luminance math routinely produces values
+ * like 4.497 for a visually-identical color pair that should read as 4.5.
+ * A 0.1 tolerance keeps us from flagging borderline-passing cases while
+ * still catching true failures (which typically clock in at 3.x or lower). */
+if(ratio<(minRatio-0.1)&&contrastEls.length<15)contrastEls.push(el)}catch(ex){}});
 e.contrastIssues=contrastEls.length;
 e.smallFontSize=smallFontEls.length;
 if(contrastEls.length)i.highlightTargets.contrastIssues=contrastEls;
@@ -2299,7 +2456,7 @@ function renderDataSourcesHTML(dsc){
   return html;
 }
 
-var html=css+'<div class="mxi-header" id="mxi-drag-handle"><div class="mxi-header-top"><div class="mxi-logo">'+mascot+'<span class="mxi-title">MxInspector</span></div><div class="mxi-header-buttons"><span class="mxi-badge">'+i.version+'</span><span class="mxi-badge'+(i.client==="React"?" mxi-badge-accent":"")+'">'+i.client+'</span><button class="mxi-icon-btn" id="mxi-info-btn" title="About">'+icon("info",16)+'<div class="mxi-info-tooltip" id="mxi-info-tooltip"><div class="mxi-info-line"><strong>MxInspector</strong> v0.2.1-beta</div><div class="mxi-info-line">Created with ❤️ by <strong>Tim Maurer</strong></div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px">Free for personal & commercial use.<br>MIT License • Attribution required.</div><a href="https://paypal.me/tapmaurer" target="_blank" class="mxi-coffee-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M80,56V24a8,8,0,0,1,16,0V56a8,8,0,0,1-16,0Zm40,8a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,120,64Zm32,0a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,152,64Zm96,56v8a40,40,0,0,1-37.51,39.91,96.59,96.59,0,0,1-27,40.09H208a8,8,0,0,1,0,16H32a8,8,0,0,1,0-16H56.54A96.3,96.3,0,0,1,24,136V88a8,8,0,0,1,8-8H208A40,40,0,0,1,248,120ZM200,96H40v40a80.27,80.27,0,0,0,45.12,72h69.76A80.27,80.27,0,0,0,200,136Zm32,24a24,24,0,0,0-16-22.62V136a95.78,95.78,0,0,1-1.2,15A24,24,0,0,0,232,128Z"/></svg>Buy me a coffee</a></div></button><button class="mxi-icon-btn" id="mxi-close-btn" title="Close">'+icon("x",16)+'</button></div></div><div class="mxi-env"><span>'+envIcon(i.envType)+' '+i.envType+'</span><span class="mxi-env-url">'+(i.env||location.host)+'</span></div>'+metaHtml+'</div><div class="mxi-body"><div class="mxi-score"><div class="mxi-score-circle" style="background:'+scoreColor(i.score)+'">'+i.score+'</div><div class="mxi-score-info"><div class="mxi-score-label">Health: '+scoreLabel+'</div><div class="mxi-score-desc">'+i.warnings.length+' insights • '+i.totalWidgets+' widgets</div></div><button class="mxi-chip-btn" id="mxi-score-info-btn" title="How is this score calculated?" style="align-self:flex-start;margin:-4px -4px 0 auto">'+icon("info",13)+'<div class="mxi-info-tooltip" id="mxi-score-info-tooltip" style="width:280px"><div class="mxi-info-line"><strong>How is this score calculated?</strong></div><div class="mxi-info-line">Starts at 100. Points are deducted when issues are detected:</div><div class="mxi-info-line">• <strong>Performance</strong> — slow load, high DOM, memory, slow requests</div><div class="mxi-info-line">• <strong>Accessibility</strong> — missing alt text, form labels, contrast</div><div class="mxi-info-line">• <strong>Security</strong> — known CVEs, exposed data, URL/form issues</div><div class="mxi-info-line">• <strong>Nesting</strong> — nested data sources, weighted by load impact</div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px;margin-top:10px">Open the <strong>Insights</strong> section below to see the exact deductions applied to this page.</div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px">90+ Excellent · 80–89 Good · 60–79 Fair · &lt;60 Needs Work</div></div></button></div><div class="mxi-page-info"><div class="mxi-page-row"><div class="mxi-page-main"><div class="mxi-page-module">'+i.module+'</div><div style="display:flex;align-items:center"><span class="mxi-page-name" title="'+i.page+'">'+i.page+'</span>'+(i.popup?'<span class="mxi-page-popup">POPUP</span>':'')+'</div></div><button class="mxi-copy-btn" id="mxi-copy-btn" title="Copy page name">'+icon("copy",14)+'</button></div>'+(i.pageParameters.length||i.dataViewEntities.length?'<div style="margin-top:10px;padding-top:10px;border-top:1px solid '+b+'"><div style="font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;display:flex;align-items:center;gap:6px">'+icon("page",12)+' CONTEXT OBJECTS</div><div style="display:flex;flex-wrap:wrap;gap:6px">'+(i.pageParameters.length?i.pageParameters:i.dataViewEntities).map(function(e){return'<span style="background:#2E2E2E;color:#FFFFFF;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:500;border:1px solid #3D3D3D">'+e+'</span>'}).join('')+'</div></div>':'')+'</div>'+
+var html=css+'<div class="mxi-header" id="mxi-drag-handle"><div class="mxi-header-top"><div class="mxi-logo">'+mascot+'<span class="mxi-title">MxInspector</span></div><div class="mxi-header-buttons"><span class="mxi-badge">'+i.version+'</span><span class="mxi-badge'+(i.client==="React"?" mxi-badge-accent":"")+'">'+i.client+'</span><button class="mxi-icon-btn" id="mxi-info-btn" title="About">'+icon("info",16)+'<div class="mxi-info-tooltip" id="mxi-info-tooltip"><div class="mxi-info-line"><strong>MxInspector</strong> v0.2.2-beta</div><div class="mxi-info-line">Created with ❤️ by <strong>Tim Maurer</strong></div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px">Free for personal & commercial use.<br>MIT License • Attribution required.</div><a href="https://paypal.me/tapmaurer" target="_blank" class="mxi-coffee-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M80,56V24a8,8,0,0,1,16,0V56a8,8,0,0,1-16,0Zm40,8a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,120,64Zm32,0a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,152,64Zm96,56v8a40,40,0,0,1-37.51,39.91,96.59,96.59,0,0,1-27,40.09H208a8,8,0,0,1,0,16H32a8,8,0,0,1,0-16H56.54A96.3,96.3,0,0,1,24,136V88a8,8,0,0,1,8-8H208A40,40,0,0,1,248,120ZM200,96H40v40a80.27,80.27,0,0,0,45.12,72h69.76A80.27,80.27,0,0,0,200,136Zm32,24a24,24,0,0,0-16-22.62V136a95.78,95.78,0,0,1-1.2,15A24,24,0,0,0,232,128Z"/></svg>Buy me a coffee</a></div></button><button class="mxi-icon-btn" id="mxi-close-btn" title="Close">'+icon("x",16)+'</button></div></div><div class="mxi-env"><span>'+envIcon(i.envType)+' '+i.envType+'</span><span class="mxi-env-url">'+(i.env||location.host)+'</span></div>'+metaHtml+'</div><div class="mxi-body"><div class="mxi-score"><div class="mxi-score-circle" style="background:'+scoreColor(i.score)+'">'+i.score+'</div><div class="mxi-score-info"><div class="mxi-score-label">Health: '+scoreLabel+'</div><div class="mxi-score-desc">'+i.warnings.length+' insights • '+i.totalWidgets+' widgets</div></div><button class="mxi-chip-btn" id="mxi-score-info-btn" title="How is this score calculated?" style="align-self:flex-start;margin:-4px -4px 0 auto">'+icon("info",13)+'<div class="mxi-info-tooltip" id="mxi-score-info-tooltip" style="width:280px"><div class="mxi-info-line"><strong>How is this score calculated?</strong></div><div class="mxi-info-line">Starts at 100. Points are deducted when issues are detected:</div><div class="mxi-info-line">• <strong>Performance</strong> — slow load, high DOM, memory, slow requests</div><div class="mxi-info-line">• <strong>Accessibility</strong> — missing alt text, form labels, contrast</div><div class="mxi-info-line">• <strong>Security</strong> — known CVEs, exposed data, URL/form issues</div><div class="mxi-info-line">• <strong>Nesting</strong> — nested data sources, weighted by load impact</div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px;margin-top:10px">Open the <strong>Insights</strong> section below to see the exact deductions applied to this page.</div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px">90+ Excellent · 80–89 Good · 60–79 Fair · &lt;60 Needs Work</div></div></button></div><div class="mxi-page-info"><div class="mxi-page-row"><div class="mxi-page-main"><div class="mxi-page-module">'+i.module+'</div><div style="display:flex;align-items:center"><span class="mxi-page-name" title="'+i.page+'">'+i.page+'</span>'+(i.popup?'<span class="mxi-page-popup">POPUP</span>':'')+'</div></div><button class="mxi-copy-btn" id="mxi-copy-btn" title="Copy page name">'+icon("copy",14)+'</button></div>'+(i.pageParameters.length||i.dataViewEntities.length?'<div style="margin-top:10px;padding-top:10px;border-top:1px solid '+b+'"><div style="font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;display:flex;align-items:center;gap:6px">'+icon("page",12)+' CONTEXT OBJECTS</div><div style="display:flex;flex-wrap:wrap;gap:6px">'+(i.pageParameters.length?i.pageParameters:i.dataViewEntities).map(function(e){return'<span style="background:#2E2E2E;color:#FFFFFF;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:500;border:1px solid #3D3D3D">'+e+'</span>'}).join('')+'</div></div>':'')+'</div>'+
 (insightsHtml?section("insights","Insights ("+i.warnings.length+")","bulb",insightsHtml,false):"")+
 section("perf","Performance","lightning",'<div style="font-size:9px;color:'+x+';margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;font-weight:500">PAGE LOAD METRICS</div><div class="mxi-metrics">'+metric("Load",o(i.loadTime),i.loadTime>4e3?m:i.loadTime>2e3?p:g,"load")+metric("DOM",i.domNodes,i.domNodes>4e3?m:i.domNodes>2e3?p:g,"dom")+metric("Requests",i.totalRequests,null,"requests")+metric("Memory",i.jsHeap?i.jsHeap+"MB":"-",null,"memory")+'</div><div style="font-size:9px;color:'+x+';margin:12px 0 8px;text-transform:uppercase;letter-spacing:1px;font-weight:500">CORE WEB VITALS</div><div class="mxi-metrics">'+metric("FCP",i.firstContentfulPaint?o(i.firstContentfulPaint):"-",i.firstContentfulPaint>1800?p:null,"fcp")+metric("LCP",i.largestContentfulPaint?o(i.largestContentfulPaint):"-",i.largestContentfulPaint>2500?p:null,"lcp")+metric("TTFB",i.ttfb?o(i.ttfb):"-",i.ttfb>600?p:null,"ttfb")+metric("CLS",i.cls?i.cls.toFixed(3):"-",i.cls>0.1?p:null,"cls")+'</div><div style="margin-top:12px;font-size:10px;color:#666;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px">'+icon("info",10)+' <span>Metrics measured on initial page load</span></div>',true)+
 section("widgets","Data Containers","cube",widgetsContent,false)+
@@ -2683,10 +2840,36 @@ function paintOverlays(targets,color,labelPrefix,variant){
  * backwards-compat until all call sites are rewired. */
 var highlightedEls=[],labelEls=[];
 
-var dragHandle=document.getElementById("mxi-drag-handle"),isDragging=false,startX,startY,startLeft,startTop;
-dragHandle.addEventListener("mousedown",function(e){if(!e.target.closest(".mxi-icon-btn")&&!e.target.closest(".mxi-copy-btn")){isDragging=true;startX=e.clientX;startY=e.clientY;var rect=A.getBoundingClientRect();startLeft=rect.left;startTop=rect.top;e.preventDefault()}});
-document.addEventListener("mousemove",function(e){if(isDragging){A.style.right="auto";A.style.left=startLeft+(e.clientX-startX)+"px";A.style.top=startTop+(e.clientY-startY)+"px"}});
-document.addEventListener("mouseup",function(){isDragging=false});
+var dragHandle=document.getElementById("mxi-drag-handle"),isDragging=false,dragPending=false,startX,startY,startLeft,startTop;
+/* v0.2.2 — The old code called e.preventDefault() on every mousedown in the
+ * header, which intermittently broke the double-click-to-minimize gesture.
+ * Two mousedowns must pair within the browser's dblclick timing window to
+ * produce a dblclick event; preventDefault on mousedown can (and, under
+ * certain focus/selection state, does) break that pairing. New approach:
+ * mousedown only flags the drag as "pending" and records the start point.
+ * preventDefault fires only once the user has actually moved past a 4px
+ * threshold — at that point it's clearly a drag, not a click or dblclick
+ * gesture, so suppressing text-selection is the right call. Pure clicks
+ * and double-clicks never hit preventDefault at all. */
+dragHandle.addEventListener("mousedown",function(e){
+  if(e.target.closest(".mxi-icon-btn")||e.target.closest(".mxi-copy-btn"))return;
+  if(e.button!==0)return; /* left button only */
+  dragPending=true;
+  startX=e.clientX;startY=e.clientY;
+  var rect=A.getBoundingClientRect();
+  startLeft=rect.left;startTop=rect.top;
+});
+document.addEventListener("mousemove",function(e){
+  if(dragPending&&!isDragging){
+    var dx=e.clientX-startX,dy=e.clientY-startY;
+    if(dx*dx+dy*dy>=16){ /* 4px threshold */
+      isDragging=true;
+      try{e.preventDefault()}catch(_){}
+    }
+  }
+  if(isDragging){A.style.right="auto";A.style.left=startLeft+(e.clientX-startX)+"px";A.style.top=startTop+(e.clientY-startY)+"px";try{e.preventDefault()}catch(_){}}
+});
+document.addEventListener("mouseup",function(){isDragging=false;dragPending=false});
 
 document.getElementById("mxi-close-btn").onclick=function(){
 if(inspectModeActive){inspectModeActive=false;document.removeEventListener("mousemove",handleInspectHover);document.removeEventListener("mouseout",handleInspectOut);destroyInspectTooltip();document.body.style.cursor=""}
@@ -3075,7 +3258,7 @@ pdfHtml+='</div>';
 if(i.slowRequests.length){pdfHtml+='<div class="section" style="background:#fff5f5"><strong>Slow Requests (&gt;1s):</strong><ul>';i.slowRequests.slice(0,5).forEach(function(r){pdfHtml+='<li>'+r.url+' ('+r.duration+'ms)</li>'});pdfHtml+='</ul></div>'}
 
 /* Footer */
-pdfHtml+='<div class="footer">'+logoSvg+'<span>Generated by <strong>MxInspector v0.2.1-beta</strong> • Created by Tim Maurer • <a href="https://paypal.me/tapmaurer" style="color:#FFB800">Support the project</a></span></div></body></html>';
+pdfHtml+='<div class="footer">'+logoSvg+'<span>Generated by <strong>MxInspector v0.2.2-beta</strong> • Created by Tim Maurer • <a href="https://paypal.me/tapmaurer" style="color:#FFB800">Support the project</a></span></div></body></html>';
 
 var win=window.open("","_blank");win.document.write(pdfHtml);win.document.close();setTimeout(function(){win.print()},500)};
 

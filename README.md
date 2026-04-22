@@ -133,7 +133,8 @@ window.__mxiPerf.getSummary()
 ### v0.3.0
 - **Firefox support** — port to Firefox's WebExtensions flavor of Manifest V3 (second manifest, `browser_specific_settings`, event-page background instead of service worker). Requires Firefox 128+ for `world: 'MAIN'`. Submit to AMO
 - **Edge Add-ons Store listing** — the existing build already runs unpacked in Edge (it's Chromium); this is just the store submission so Edge users get one-click install
-- **Accessibility simulator** — overlay the page through color-blindness (protanopia, deuteranopia, tritanopia) and other visual-impairment filters (low vision, cataract simulation) so you can see what non-sighted-ideal users would see
+- **Visual impairment simulator** — overlay the page through filters that approximate how users with common visual conditions experience it: color-blindness (protanopia, deuteranopia, tritanopia, achromatopsia), low vision (various acuity levels), cataracts, glaucoma (peripheral vision loss), and macular degeneration (central vision loss). Implemented via SVG filters on an overlay layer, toggleable per type
+- **Motor impairment simulator** — cursor-behaviour overlays that approximate reduced motor control: tremor simulation (adds jitter to the pointer), reduced pointer precision (dead-zone around target centre), slower click-to-activation timing, and a "hover trap" highlight for elements smaller than the WCAG 2.2 24×24 minimum target size. Helps you FEEL the gap between "works for me" and "works for a user with Parkinson's or essential tremor"
 - **Enhanced CSS Inspector** — show CSS variables with computed values (e.g. `color: #FF5A5A` from `var(--brand-danger)`)
 - **Association deep inspection** — click to fetch and display associated object's attributes
 - **Widget Performance Profiler** — measure render time per widget, identify slowest widgets
@@ -167,6 +168,18 @@ window.__mxiPerf.getSummary()
 ---
 
 ## Changelog
+
+### 0.2.2-beta
+Small patch focused on two reliability fixes that surfaced after 0.2.1 was in real use.
+
+**Double-click-to-minimize** — the collapse gesture on the main panel header was intermittently not firing, especially after a few open/close cycles. Root cause: the drag handler called `e.preventDefault()` on *every* mousedown in the header, not just once a drag actually began. That `preventDefault` interacted with focus/selection state accumulated across earlier clicks and occasionally broke the browser's internal pairing of two mousedowns into a `dblclick`. Rewrote the gesture with the same pattern the Data Inspector drag already uses: mousedown only marks the drag as "pending" with no preventDefault; `preventDefault` kicks in only once the cursor has moved past a 4px threshold, at which point the intent is clearly a drag and suppressing text selection is the right call. Pure clicks and double-clicks never hit preventDefault at all.
+
+**Accessibility contrast false positives** — the A11y audit was flagging obviously-readable elements (like white text on a solid-blue primary button) as contrast failures. Five compounding issues, all fixed:
+- **CSS Color Level 4 `color()` notation wasn't parsed.** Mendix Atlas and many modern themes now declare colours in srgb space, producing computed values like `color(srgb 0.119 0.232 0.718)` instead of `rgb(30, 59, 183)`. The old parser only matched `rgb()`/`rgba()`, returned null for everything else, and `getEffectiveBg` interpreted that as "no background, keep walking up" — falling through to the composite-over-white fallback and reporting white-on-white (1:1, catastrophic fail) for the primary-blue button. Parser now handles `color(srgb …)`, `color(srgb-linear …)`, `color(display-p3 …)`, hex shorthand, and the `none` keyword. This was the *actual* fix for the Create Order button false positive — the four items below are also real bugs we fixed along the way, but wouldn't have been enough on their own.
+- **Gradient backgrounds were invisible to the check.** Themes that paint buttons with `background: linear-gradient(...)` and no solid `background-color` made `getComputedStyle` report `rgba(0,0,0,0)`. The walk-up passed through, hit the page's white background, and measured white-on-white. Now we detect `backgroundImage !== "none"` on any ancestor and bail out — can't measure contrast against a gradient reliably, so we don't flag it.
+- **No alpha compositing.** The old code used a crude `alpha >= 0.5` threshold (accept) / `< 0.5` (ignore). Now translucent layers are properly alpha-blended via `out = src*src.a + dst*(1-src.a)`, so `rgba(255,0,0,0.3)` on white correctly composites to pale pink, not "red" and not "white".
+- **Children and parents double-measured.** Both a `<button>` and its inner text-less icon `<span>` would be visited, potentially producing inconsistent results. Now: if an element has no direct text-node child, skip it and let the actual text containers handle their own check.
+- **Floating-point wobble on the 4.5:1 boundary.** Pairs that should read as 4.5 sometimes compute to 4.497 and got flagged. Added a 0.1 tolerance — real failures clock in at 3.x or lower, so this only silences false positives.
 
 ### 0.2.1-beta
 First patch on top of the 0.2.0 beta. Focus was on polish, Mendix 11 DataGrid2 support, and the "stuck with old data" problem on navigation.
@@ -251,8 +264,8 @@ mendix-inspector/
 │   ├── manifest.json
 │   ├── background.js                 # Service worker — injects scripts on icon click
 │   ├── content/
-│   │   ├── inspector.js              # Main UI — panel shell, sections, PDF export (~5,131 lines)
-│   │   ├── mx-data-extractor.js      # React Fiber + Dojo data extraction (~1,069 lines)
+│   │   ├── inspector.js              # Main UI — panel shell, sections, PDF export (~5,267 lines)
+│   │   ├── mx-data-extractor.js      # React Fiber + Dojo data extraction (~1,104 lines)
 │   │   ├── mxi-layer-stack.js        # Layer-stack module (currently dormant — click-through behaviour didn't land cleanly, kept for future reference)
 │   │   ├── mxi-data-panel.js         # Data Inspector (search, drill, pulse highlight, SPA-nav auto-refresh) (~2,726 lines)
 │   │   ├── mxi-security.js           # Security scanner (secret patterns, CVEs, endpoint probe) (~563 lines)
@@ -260,7 +273,8 @@ mendix-inspector/
 │   └── icons/
 ├── releases/
 │   ├── mendix-inspector-v0.2.0-beta.zip
-│   └── mendix-inspector-v0.2.1-beta.zip
+│   ├── mendix-inspector-v0.2.1-beta.zip
+│   └── mendix-inspector-v0.2.2-beta.zip
 └── docs/
     └── screenshots/
 ```

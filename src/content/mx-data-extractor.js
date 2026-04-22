@@ -697,30 +697,59 @@
     if (!widget) return null;
     
     data.widgetId = widgetId;
-    
-    if (widget._mxObject) {
+
+    // v0.2.1 — Dojo widgets store their context object under a handful of
+    // different property names depending on widget type and Mendix version.
+    // Check them in order; first hit wins. Previously only `_mxObject` and
+    // `_datasource._objects` were checked, which missed: DataViews whose
+    // context object lives under `_contextObj` (Mendix 7-8 pattern); list-y
+    // widgets that expose `getObjects()` as a method rather than `_objects`
+    // as a property; newer Dojo builds that park the list on the widget
+    // itself as `_objects` rather than on a nested `_datasource`.
+    var single = widget._mxObject || widget._contextObj || widget._contextObject || null;
+    if (single && typeof single.getEntity === 'function') {
       data.objectCount = 1;
-      data.mxObject = widget._mxObject;
-      try {
-        data.entity = widget._mxObject.getEntity();
-      } catch(e) {}
+      data.mxObject = single;
+      try { data.entity = single.getEntity(); } catch(e) {}
+      // data.items intentionally left empty — single-object containers
+      // (DataView) should not produce an items array; the data panel
+      // decides row iteration based on container type, not items length.
       
       // Extract attributes and associations
-      var objData = MxDataExtractor.getObjectAttributes(widget._mxObject);
+      var objData = MxDataExtractor.getObjectAttributes(single);
       data.attributes = objData.attributes;
       data.associations = objData.associations;
     }
     
-    if (widget._datasource) {
-      try {
+    // List datasources — three variants in the wild
+    var listObjects = null;
+    try {
+      if (widget._datasource) {
         var ds = widget._datasource;
-        if (ds._objects) {
-          data.objectCount = ds._objects.length;
-          if (ds._objects.length > 0) {
-            data.entity = ds._objects[0].getEntity();
-            data.mxObject = ds._objects[0];
-          }
+        if (ds._objects && ds._objects.length) {
+          listObjects = ds._objects;
+        } else if (typeof ds.getObjects === 'function') {
+          var maybe = ds.getObjects();
+          if (maybe && maybe.length) listObjects = maybe;
         }
+      }
+      // Newer Dojo builds: widget._objects without an outer _datasource
+      if (!listObjects && widget._objects && widget._objects.length) {
+        listObjects = widget._objects;
+      }
+      // Reference selectors (reference set) expose `_referenceSet` or `_objs`
+      if (!listObjects && widget._objs && widget._objs.length) {
+        listObjects = widget._objs;
+      }
+    } catch(e) {}
+
+    if (listObjects && listObjects.length) {
+      data.objectCount = listObjects.length;
+      data.items = listObjects; // Dojo-style items are already MxObjects; data-panel calls
+                                 // getMxObjectFromItem() which handles both shapes.
+      try {
+        data.entity = listObjects[0].getEntity();
+        if (!data.mxObject) data.mxObject = listObjects[0];
       } catch(e) {}
     }
     
@@ -816,10 +845,16 @@
    *     have separate fiber datasources.
    */
   MxDataExtractor.scanAllDataContainers = function() {
+    // v0.2.1 — added Dojo-client container classes so Mendix 7-9 apps are
+    // covered too. `.mx-grid` and `.mx-datagrid` are the classic datagrid
+    // widgets; `.mx-referenceselector` holds reference-set data; `.mx-grid-list`
+    // is seen on newer Dojo datagrid builds. React equivalents above already
+    // cover Mendix 10+.
     var containers = document.querySelectorAll(
       '.mx-dataview:not(.mx-dataview-content), .mx-listview, ' +
       '.widget-datagrid, .widget-gallery, ' +
-      '.mx-templategrid, .widget-tree-node, .mx-treeview'
+      '.mx-templategrid, .widget-tree-node, .mx-treeview, ' +
+      '.mx-grid, .mx-datagrid, .mx-referenceselector, .mx-grid-list'
     );
     
     var results = {
