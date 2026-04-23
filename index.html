@@ -1540,6 +1540,7 @@ body {
 }
 
 /* Install */
+.install-block { padding: var(--sp-6); }
 .install-terminal {
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
@@ -1652,7 +1653,11 @@ body {
   .hero-stage { margin-top: var(--sp-6); padding-bottom: var(--sp-10); min-height: 640px; }
   .hero-orb, .hero-stack-card, .deco-pill { display: none; }
   .feat-section { padding: 72px 0; }
-  .feat-inner { grid-template-columns: 1fr; gap: 48px; }
+  .feat-inner,
+  .feat-section.alt .feat-inner {
+    grid-template-columns: 1fr;
+    gap: 48px;
+  }
   .feat-section.alt .feat-copy { order: 1; }
   .feat-section.alt .feat-visual { order: 2; }
   .how-row { grid-template-columns: 1fr; }
@@ -1667,21 +1672,138 @@ body {
   .perf-tile.featured { grid-row: auto; grid-column: span 2; }
 }
 @media (max-width: 640px) {
-  .container { padding: 0 20px; }
-  .nav { padding: 14px 20px; }
+  .container { padding: 0 16px; }
+  .nav { padding: 14px 16px; }
   .nav-right .nav-link { display: none; }
-  .hero-headline { font-size: 52px; letter-spacing: -2px; }
   .rp { width: 320px; }
   .footer-inner { justify-content: flex-start; }
-  /* On narrow screens, move the floating pills back into normal flow */
+
+  /* ── HERO ───────────────────────────────────────────────
+     Tighter hero-block padding so the headline, announce pill,
+     and subhead have room to breathe on narrow viewports. */
+  .div-block.hero-block {
+    padding: var(--sp-5) var(--sp-4) var(--sp-4);
+  }
+
+  /* Headline: scale down so "DevTools for" fits on one line
+     inside the hero-block without being cut off. */
+  .hero-headline {
+    font-size: 44px;
+    letter-spacing: -1.5px;
+  }
+
+  /* Announce pill: move back into flow, make compact, keep on one line. */
   .hero-announce {
     position: static;
     transform: none;
     margin: 0 auto var(--sp-5);
     animation: fade-up .7s var(--easing) .1s forwards;
+    padding: 5px 10px 5px 6px;
+    gap: 8px;
+    font-size: 12px;
+    white-space: nowrap;
+    max-width: 100%;
   }
-  .div-block.hero-block {
-    padding: var(--sp-6);
+  .hero-announce-tag {
+    font-size: 9px;
+    padding: 3px 6px;
+  }
+
+  /* Subhead: smaller + tighter margin — was dominating the hero. */
+  .hero-subhead {
+    font-size: 15px;
+    line-height: 1.5;
+    margin-bottom: var(--sp-4);
+  }
+
+  /* Accent hairline under the headline: the 300px desktop width
+     looks oversized against the smaller mobile headline. Scale it
+     down so it reads as an accent, not a divider. */
+  .hero-underline { width: 180px; }
+
+  /* ── FEAT SECTIONS ──────────────────────────────────────
+     Lock feat-inner to a single column and re-assert stacking
+     order for .alt sections (copy on top, visual below).
+     Selector matches .alt specificity so the desktop rule
+     doesn't override us on mobile. */
+  .feat-inner,
+  .feat-section.alt .feat-inner {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  .feat-section.alt .feat-copy  { order: 1; }
+  .feat-section.alt .feat-visual { order: 2; }
+
+  /* Tighter inner padding for all non-hero div-blocks. */
+  .div-block { padding: 28px 20px; }
+
+  /* ── DATA INSPECTOR VISUAL ──────────────────────────────
+     At this width the absolutely-positioned drawer completely
+     covered the page beneath. Stack them vertically instead so
+     both the grid and the entity drawer stay legible. */
+  .di-viz {
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    max-width: 420px;
+  }
+  .di-page {
+    position: relative;
+    top: auto; left: auto; right: auto; bottom: auto;
+    width: 100%;
+  }
+  .di-drawer {
+    position: relative;
+    top: auto; right: auto;
+    width: 100%;
+    max-width: 280px;
+    margin-left: auto; /* still feels "popped out" from the page */
+  }
+
+  /* ── PERFORMANCE TILES ──────────────────────────────────
+     Stack the three metric tiles in a single column so each
+     one has real breathing room instead of being cramped
+     two-up underneath the featured tile. */
+  .perf-viz { grid-template-columns: 1fr; }
+  .perf-tile.featured {
+    grid-column: auto;
+    padding: 22px 20px;
+  }
+  .perf-tile.featured .perf-tile-val { font-size: 44px; }
+
+  /* ── HOW IT WORKS ───────────────────────────────────────
+     The desktop code snippets use white-space:nowrap, which
+     on a narrow grid column forces the grid item (.how-card)
+     to grow past its 1fr assignment — pushing the code box
+     visibly to the right of the text above it. Pin the grid
+     item with min-width:0 and let the code wrap naturally. */
+  .how-card { min-width: 0; padding: 36px 24px; }
+  .how-card-code {
+    width: 100%;
+    box-sizing: border-box;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    overflow-x: visible;
+    font-size: 10.5px;
+    line-height: 1.5;
+  }
+
+  /* ── INSTALL ────────────────────────────────────────────
+     Reduce the block's padding so the terminal snippet isn't
+     squeezed to two words per line. */
+  .install-block { padding: 24px 16px; }
+  .install-term-body {
+    padding: 20px 16px;
+    font-size: 12px;
+    line-height: 1.85;
+  }
+  .install-step { gap: 12px; }
+  .install-step-num { width: 22px; }
+  .install-step-text code {
+    padding: 2px 5px;
+    word-break: break-word;
   }
 }
 </style>
@@ -2097,7 +2219,7 @@ body {
       <p class="section-intro">Not on the Chrome Web Store yet — grab the latest release and load it unpacked.</p>
     </div>
 
-    <div class="div-block" style="padding: var(--sp-6);">
+    <div class="div-block install-block">
       <span class="div-corner tl"></span>
       <span class="div-corner tr"></span>
       <span class="div-corner bl"></span>
