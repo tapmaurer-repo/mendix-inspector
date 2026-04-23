@@ -16,25 +16,13 @@
       <stop offset="0%" stop-color="#FF7A50"/>
       <stop offset="100%" stop-color="#E35A3A"/>
     </linearGradient>
-    <linearGradient id="cardShade" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#1A1A1A"/>
-      <stop offset="100%" stop-color="#141414"/>
+    <linearGradient id="fadeBottom" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#141414" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#141414" stop-opacity="1"/>
     </linearGradient>
-    <linearGradient id="containerCard" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1A1A1A"/>
-      <stop offset="100%" stop-color="#0f0f0f"/>
-    </linearGradient>
-    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="12"/>
-      <feOffset dx="0" dy="10"/>
-      <feComponentTransfer>
-        <feFuncA type="linear" slope="0.6"/>
-      </feComponentTransfer>
-      <feMerge>
-        <feMergeNode/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
+    <clipPath id="panelClip">
+      <rect x="0" y="0" width="400" height="280" rx="12"/>
+    </clipPath>
   </defs>
 
   <!-- BACKGROUND -->
@@ -43,7 +31,7 @@
   <rect width="1280" height="400" fill="url(#atmoRay)"/>
   <rect width="1280" height="400" fill="url(#atmoGlow)"/>
 
-  <!-- COMPARTMENT FRAME (full banner) -->
+  <!-- COMPARTMENT FRAME -->
   <rect x="30" y="30" width="1220" height="340" fill="none" stroke="#222222" stroke-width="1"/>
   <g stroke="#565656" stroke-width="1">
     <line x1="21" y1="30" x2="39" y2="30"/>
@@ -56,8 +44,9 @@
     <line x1="1250" y1="361" x2="1250" y2="379"/>
   </g>
 
-  <!-- ========== LEFT SIDE: Brand + Title ========== -->
-  <g transform="translate(75, 85)">
+  <!-- ========== LEFT SIDE ========== -->
+  <!-- Compacted vertical rhythm so content sits centered with breathing room top/bottom -->
+  <g transform="translate(75, 55)">
     <!-- Brand mark -->
     <g transform="scale(1.6)">
       <rect x="0" y="0" width="24" height="24" rx="7" fill="#242424"/>
@@ -66,19 +55,21 @@
       <line x1="37" y1="6" x2="43" y2="18" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
     </g>
 
-    <!-- Announce pill -->
-    <g transform="translate(0, 65)">
+    <!-- BETA pill -->
+    <g transform="translate(0, 55)">
       <rect x="0" y="0" width="220" height="28" rx="14" fill="#0a0a0a" stroke="#222222" stroke-width="1"/>
       <rect x="5" y="5" width="40" height="18" rx="9" fill="url(#accentPill)"/>
       <text x="25" y="18" font-family="Geist Mono, monospace" font-size="9" font-weight="700" fill="#0A0A0A" text-anchor="middle" letter-spacing="0.5">BETA</text>
       <text x="54" y="19" font-family="Geist, sans-serif" font-size="12" font-weight="400" fill="#858585">Reads the React Fiber tree</text>
     </g>
 
-    <!-- Title -->
-    <text x="0" y="168" font-family="Geist, sans-serif" font-size="76" font-weight="500" fill="#EDEDED" letter-spacing="-2.8">MxInspector</text>
+    <!-- Title with pixel "e" in "MxInspector" -->
+    <text y="148" font-family="Geist, sans-serif" font-size="72" font-weight="500" fill="#EDEDED" letter-spacing="-2.5">
+      <tspan x="0">MxInsp</tspan><tspan font-family="Geist Pixel Square, GeistPixelSquare" font-weight="400" letter-spacing="-0.5">e</tspan><tspan letter-spacing="-2.5">ctor</tspan>
+    </text>
 
     <!-- Orange hairline -->
-    <g transform="translate(0, 190)">
+    <g transform="translate(0, 168)">
       <line x1="0" y1="0" x2="220" y2="0" stroke="#FF7A50" stroke-width="1"/>
       <line x1="-5" y1="0" x2="5" y2="0" stroke="#FF7A50" stroke-width="1.2"/>
       <line x1="0" y1="-5" x2="0" y2="5" stroke="#FF7A50" stroke-width="1.2"/>
@@ -87,11 +78,11 @@
     </g>
 
     <!-- Subhead -->
-    <text x="0" y="218" font-family="Geist, sans-serif" font-size="16" font-weight="400" fill="#858585" letter-spacing="-0.2">DevTools for Mendix · Chrome extension</text>
-    <text x="0" y="240" font-family="Geist, sans-serif" font-size="16" font-weight="400" fill="#858585" letter-spacing="-0.2">Zero server calls.</text>
+    <text x="0" y="194" font-family="Geist, sans-serif" font-size="15" font-weight="400" fill="#858585" letter-spacing="-0.2">DevTools for Mendix · Chrome extension</text>
+    <text x="0" y="214" font-family="Geist, sans-serif" font-size="15" font-weight="400" fill="#858585" letter-spacing="-0.2">Zero server calls.</text>
 
-    <!-- Nav-style feature list -->
-    <g transform="translate(0, 268)" font-family="Geist Mono, monospace" font-size="10" letter-spacing="1.8" fill="#FF7A50">
+    <!-- Feature nav list -->
+    <g transform="translate(0, 240)" font-family="Geist Mono, monospace" font-size="10" letter-spacing="1.8" fill="#FF7A50">
       <text x="0" y="0">INSPECTOR</text>
       <text x="92" y="0" fill="#565656">·</text>
       <text x="108" y="0">PERFORMANCE</text>
@@ -100,163 +91,125 @@
     </g>
   </g>
 
-  <!-- ========== RIGHT SIDE: Floating inspector UI panels ========== -->
+  <!-- ========== RIGHT SIDE: Main MxInspector panel ========== -->
+  <g transform="translate(700, 60)">
+    <!-- Panel outer -->
+    <rect x="0" y="0" width="400" height="280" rx="12" fill="#141414" stroke="#2E2E2E" stroke-width="1"/>
 
-  <!-- Data Containers panel (back, slight rotation) -->
-  <g transform="translate(670, 65) rotate(-2)" filter="url(#cardShadow)">
-    <rect x="0" y="0" width="260" height="280" rx="12" fill="url(#containerCard)" stroke="#2E2E2E" stroke-width="1"/>
+    <g clip-path="url(#panelClip)">
+      <!-- HEADER -->
+      <rect x="0" y="0" width="400" height="44" fill="#1A1A1A"/>
+      <line x1="0" y1="44" x2="400" y2="44" stroke="#222" stroke-width="1"/>
+      <!-- Brand mark -->
+      <g transform="translate(14, 13)">
+        <rect x="0" y="0" width="19" height="19" rx="5.5" fill="#242424"/>
+        <rect x="22" y="0" width="19" height="19" rx="5.5" fill="#1A1A1A" stroke="#FF7A50" stroke-width="1.2"/>
+        <rect x="8" y="8" width="3" height="3" rx="0.5" fill="#fff"/>
+        <line x1="29" y1="5" x2="34" y2="14" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+      </g>
+      <text x="62" y="29" font-family="Geist, sans-serif" font-size="13" font-weight="600" fill="#EDEDED" letter-spacing="-0.2">MxInspector</text>
+      <!-- Version pill -->
+      <g transform="translate(154, 14)">
+        <rect x="0" y="0" width="52" height="18" rx="4" fill="#0a0a0a" stroke="#2e2e2e" stroke-width="0.8"/>
+        <text x="26" y="12" font-family="Geist Mono, monospace" font-size="9" fill="#858585" text-anchor="middle">10.24.15</text>
+      </g>
+      <!-- React accent pill -->
+      <g transform="translate(214, 14)">
+        <rect x="0" y="0" width="42" height="18" rx="4" fill="#2a1f15" stroke="#FF7A50" stroke-width="0.8"/>
+        <text x="21" y="12" font-family="Geist Mono, monospace" font-size="9" font-weight="500" fill="#FFB090" text-anchor="middle">React</text>
+      </g>
+      <!-- Header right icons -->
+      <g transform="translate(350, 13)" stroke="#565656" stroke-width="1.2" fill="none">
+        <circle cx="7" cy="9" r="5.5"/>
+        <circle cx="7" cy="7" r="0.6" fill="#565656" stroke="none"/>
+        <line x1="7" y1="9" x2="7" y2="12"/>
+        <g transform="translate(22, 4)" stroke="#858585" stroke-width="1.4" stroke-linecap="round">
+          <line x1="0" y1="0" x2="8" y2="8"/>
+          <line x1="8" y1="0" x2="0" y2="8"/>
+        </g>
+      </g>
 
-    <!-- Header -->
-    <rect x="0" y="0" width="260" height="40" rx="12" fill="#1A1A1A"/>
-    <rect x="0" y="28" width="260" height="12" fill="#1A1A1A"/>
-    <line x1="0" y1="40" x2="260" y2="40" stroke="#222" stroke-width="1"/>
-    <polygon points="14,16 22,16 18,23" fill="#565656"/>
-    <!-- Cube icon -->
-    <g transform="translate(28, 12)" stroke="#EDEDED" stroke-width="1.2" fill="none" stroke-linejoin="round">
-      <path d="M 7 0 L 14 3.5 L 14 10.5 L 7 14 L 0 10.5 L 0 3.5 Z"/>
-      <path d="M 7 0 L 7 7 M 0 3.5 L 7 7 M 14 3.5 L 7 7"/>
-    </g>
-    <text x="50" y="25" font-family="Geist, sans-serif" font-size="12" font-weight="600" fill="#EDEDED">Data Containers</text>
+      <!-- ENV BAR -->
+      <g transform="translate(0, 44)">
+        <rect x="0" y="0" width="400" height="30" fill="#0f0f0f"/>
+        <line x1="0" y1="30" x2="400" y2="30" stroke="#191919" stroke-width="1"/>
+        <circle cx="18" cy="15" r="3.5" fill="#FF7A50"/>
+        <text x="30" y="19" font-family="Geist, sans-serif" font-size="11" font-weight="500" fill="#EDEDED">Local</text>
+        <text x="62" y="19" font-family="Geist Mono, monospace" font-size="10" fill="#E8C56A">http://localhost:8082/</text>
+      </g>
 
-    <!-- Caption -->
-    <text x="14" y="60" font-family="Geist, sans-serif" font-size="10" fill="#858585">Widgets that bind to data</text>
+      <!-- META PILLS -->
+      <g transform="translate(14, 88)">
+        <g>
+          <rect x="0" y="0" width="122" height="22" rx="5" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
+          <text x="8" y="15" font-family="Geist, sans-serif" font-size="10" fill="#858585">Desktop</text>
+          <text x="56" y="15" font-family="Geist, sans-serif" font-size="10" fill="#565656">·</text>
+          <text x="63" y="15" font-family="Geist, sans-serif" font-size="10" fill="#EDEDED">Responsive</text>
+        </g>
+        <g transform="translate(130, 0)">
+          <rect x="0" y="0" width="148" height="22" rx="5" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
+          <text x="8" y="15" font-family="Geist, sans-serif" font-size="10" fill="#858585">Language</text>
+          <text x="62" y="15" font-family="Geist, sans-serif" font-size="10" fill="#565656">·</text>
+          <text x="69" y="15" font-family="Geist, sans-serif" font-size="10" fill="#EDEDED">English US</text>
+        </g>
+      </g>
 
-    <!-- Grid of tiles 3x2 -->
-    <g transform="translate(14, 75)">
-      <!-- Row 1 -->
-      <g transform="translate(0, 0)">
-        <rect x="0" y="0" width="72" height="52" rx="6" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
-        <circle cx="60" cy="12" r="6" fill="#2a1f15" stroke="#FF7A50" stroke-width="0.8"/>
-        <!-- eye icon -->
-        <ellipse cx="60" cy="12" rx="3" ry="1.8" fill="none" stroke="#FFB090" stroke-width="0.6"/>
-        <circle cx="60" cy="12" r="0.9" fill="#FFB090"/>
-        <text x="10" y="30" font-family="Geist Mono, monospace" font-size="15" font-weight="500" fill="#EDEDED">2</text>
-        <text x="10" y="44" font-family="Geist, sans-serif" font-size="8" fill="#858585">Dataview</text>
+      <!-- HEALTH CARD -->
+      <g transform="translate(14, 122)">
+        <rect x="0" y="0" width="372" height="62" rx="8" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
+        <text x="18" y="42" font-family="Geist, sans-serif" font-size="38" font-weight="500" fill="#3CB979" letter-spacing="-1.5">93</text>
+        <text x="78" y="28" font-family="Geist, sans-serif" font-size="13" font-weight="600" fill="#EDEDED">Health: Excellent</text>
+        <text x="78" y="44" font-family="Geist, sans-serif" font-size="11" fill="#858585">7 insights · 32 widgets</text>
+        <g transform="translate(346, 28)" stroke="#565656" stroke-width="1.2" fill="none">
+          <circle cx="7" cy="7" r="6"/>
+          <circle cx="7" cy="4.5" r="0.7" fill="#565656" stroke="none"/>
+          <line x1="7" y1="6.5" x2="7" y2="10"/>
+        </g>
       </g>
-      <g transform="translate(80, 0)">
-        <rect x="0" y="0" width="72" height="52" rx="6" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
-        <text x="10" y="30" font-family="Geist Mono, monospace" font-size="15" font-weight="500" fill="#565656">0</text>
-        <text x="10" y="44" font-family="Geist, sans-serif" font-size="8" fill="#858585">Listview</text>
-        <text x="60" y="12" font-family="Geist, sans-serif" font-size="8" fill="#565656">?</text>
-      </g>
-      <g transform="translate(160, 0)">
-        <rect x="0" y="0" width="72" height="52" rx="6" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
-        <text x="10" y="30" font-family="Geist Mono, monospace" font-size="15" font-weight="500" fill="#565656">0</text>
-        <text x="10" y="44" font-family="Geist, sans-serif" font-size="8" fill="#858585">Templategrid</text>
-        <text x="60" y="12" font-family="Geist, sans-serif" font-size="8" fill="#565656">?</text>
-      </g>
-      <!-- Row 2 -->
-      <g transform="translate(0, 60)">
-        <rect x="0" y="0" width="72" height="52" rx="6" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
-        <text x="10" y="30" font-family="Geist Mono, monospace" font-size="15" font-weight="500" fill="#565656">0</text>
-        <text x="10" y="44" font-family="Geist, sans-serif" font-size="8" fill="#858585">Datagrid2</text>
-        <text x="60" y="12" font-family="Geist, sans-serif" font-size="8" fill="#565656">?</text>
-      </g>
-      <g transform="translate(80, 60)">
-        <rect x="0" y="0" width="72" height="52" rx="6" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
-        <text x="10" y="30" font-family="Geist Mono, monospace" font-size="15" font-weight="500" fill="#565656">0</text>
-        <text x="10" y="44" font-family="Geist, sans-serif" font-size="8" fill="#858585">Gallery</text>
-        <text x="60" y="12" font-family="Geist, sans-serif" font-size="8" fill="#565656">?</text>
-      </g>
-      <g transform="translate(160, 60)">
-        <rect x="0" y="0" width="72" height="52" rx="6" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
-        <text x="10" y="30" font-family="Geist Mono, monospace" font-size="15" font-weight="500" fill="#565656">0</text>
-        <text x="10" y="44" font-family="Geist, sans-serif" font-size="8" fill="#858585">Treenode</text>
-        <text x="60" y="12" font-family="Geist, sans-serif" font-size="8" fill="#565656">?</text>
-      </g>
-    </g>
 
-    <!-- Nested Data Views group -->
-    <text x="14" y="218" font-family="Geist Mono, monospace" font-size="9" letter-spacing="1" fill="#565656">NESTED DATA VIEWS</text>
-    <g transform="translate(14, 226)">
-      <g transform="translate(0, 0)">
-        <rect x="0" y="0" width="112" height="40" rx="6" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
-        <text x="10" y="20" font-family="Geist Mono, monospace" font-size="14" font-weight="500" fill="#565656">0</text>
-        <text x="10" y="33" font-family="Geist, sans-serif" font-size="8" fill="#858585">Normal</text>
-        <text x="100" y="12" font-family="Geist, sans-serif" font-size="8" fill="#565656">?</text>
+      <!-- APPLICATION CARD -->
+      <g transform="translate(14, 194)">
+        <rect x="0" y="0" width="372" height="90" rx="8" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
+        <text x="14" y="20" font-family="Geist Mono, monospace" font-size="9" fill="#565656" letter-spacing="0.8">APPLICATION</text>
+        <text x="14" y="38" font-family="Geist, sans-serif" font-size="14" font-weight="600" fill="#EDEDED">Planner_Homepage</text>
+        <g transform="translate(346, 24)" stroke="#565656" stroke-width="1.2" fill="none">
+          <rect x="0" y="0" width="8" height="9" rx="1"/>
+          <rect x="3" y="3" width="8" height="9" rx="1"/>
+        </g>
+        <line x1="14" y1="52" x2="358" y2="52" stroke="#1e1e1e" stroke-width="0.8"/>
+        <text x="14" y="70" font-family="Geist Mono, monospace" font-size="9" fill="#565656" letter-spacing="0.8">CONTEXT OBJECTS</text>
+        <g font-family="Geist Mono, monospace" font-size="9">
+          <g transform="translate(14, 76)">
+            <rect x="0" y="0" width="116" height="16" rx="4" fill="#1a1a1a" stroke="#2e2e2e" stroke-width="0.6"/>
+            <text x="8" y="11" fill="#EDEDED">Masterdata.Product</text>
+          </g>
+          <g transform="translate(134, 76)">
+            <rect x="0" y="0" width="92" height="16" rx="4" fill="#1a1a1a" stroke="#2e2e2e" stroke-width="0.6"/>
+            <text x="8" y="11" fill="#EDEDED">MRPRun.MRPRun</text>
+          </g>
+          <g transform="translate(230, 76)">
+            <rect x="0" y="0" width="90" height="16" rx="4" fill="#1a1a1a" stroke="#2e2e2e" stroke-width="0.6"/>
+            <text x="8" y="11" fill="#EDEDED">MRPRun.Filters</text>
+          </g>
+        </g>
       </g>
-      <g transform="translate(120, 0)">
-        <rect x="0" y="0" width="112" height="40" rx="6" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
-        <text x="10" y="20" font-family="Geist Mono, monospace" font-size="14" font-weight="500" fill="#565656">0</text>
-        <text x="10" y="33" font-family="Geist, sans-serif" font-size="8" fill="#858585">Deeply Nested</text>
-        <text x="100" y="12" font-family="Geist, sans-serif" font-size="8" fill="#565656">?</text>
-      </g>
-    </g>
-  </g>
 
-  <!-- Performance panel (front, slight rotation other way) -->
-  <g transform="translate(960, 115) rotate(3)" filter="url(#cardShadow)">
-    <rect x="0" y="0" width="240" height="200" rx="12" fill="url(#containerCard)" stroke="#2E2E2E" stroke-width="1"/>
-
-    <!-- Header -->
-    <rect x="0" y="0" width="240" height="40" rx="12" fill="#1A1A1A"/>
-    <rect x="0" y="28" width="240" height="12" fill="#1A1A1A"/>
-    <line x1="0" y1="40" x2="240" y2="40" stroke="#222" stroke-width="1"/>
-    <polygon points="14,16 22,16 18,23" fill="#565656"/>
-    <!-- Lightning icon -->
-    <g transform="translate(30, 10)">
-      <path d="M 6 0 L 0 10 L 5 10 L 3 18 L 10 7 L 5 7 Z" fill="#FF7A50" stroke="#FF7A50" stroke-width="0.6" stroke-linejoin="round"/>
-    </g>
-    <text x="50" y="25" font-family="Geist, sans-serif" font-size="12" font-weight="600" fill="#EDEDED">Performance</text>
-
-    <!-- Featured metric -->
-    <g transform="translate(14, 52)">
-      <rect x="0" y="0" width="130" height="130" rx="8" fill="#0d1410" stroke="#2a3e30" stroke-width="0.8"/>
-      <text x="14" y="52" font-family="Geist, sans-serif" font-size="38" font-weight="500" fill="#3CB979" letter-spacing="-1.5">311</text>
-      <text x="82" y="52" font-family="Geist Mono, monospace" font-size="13" fill="#858585">ms</text>
-      <text x="14" y="72" font-family="Geist Mono, monospace" font-size="8" letter-spacing="0.8" fill="#858585">LOAD TIME</text>
-      <!-- Spark -->
-      <g transform="translate(14, 92)">
-        <rect x="0" y="16" width="4" height="6" fill="#3CB979" opacity="0.5"/>
-        <rect x="6" y="10" width="4" height="12" fill="#3CB979" opacity="0.7"/>
-        <rect x="12" y="14" width="4" height="8" fill="#3CB979" opacity="0.5"/>
-        <rect x="18" y="4" width="4" height="18" fill="#3CB979" opacity="0.7"/>
-        <rect x="24" y="8" width="4" height="14" fill="#3CB979" opacity="0.5"/>
-        <rect x="30" y="6" width="4" height="16" fill="#3CB979" opacity="0.7"/>
-        <rect x="36" y="12" width="4" height="10" fill="#3CB979" opacity="0.5"/>
-        <rect x="42" y="2" width="4" height="20" fill="#3CB979" opacity="0.7"/>
-        <rect x="48" y="7" width="4" height="15" fill="#3CB979" opacity="0.5"/>
-        <rect x="54" y="9" width="4" height="13" fill="#3CB979" opacity="0.7"/>
-        <rect x="60" y="13" width="4" height="9" fill="#3CB979" opacity="0.5"/>
-        <rect x="66" y="5" width="4" height="17" fill="#3CB979" opacity="0.7"/>
-        <rect x="72" y="11" width="4" height="11" fill="#3CB979" opacity="0.5"/>
-        <rect x="78" y="8" width="4" height="14" fill="#3CB979" opacity="0.7"/>
-        <rect x="84" y="15" width="4" height="7" fill="#3CB979" opacity="0.5"/>
-        <rect x="90" y="6" width="4" height="16" fill="#3CB979" opacity="0.7"/>
-        <rect x="96" y="10" width="4" height="12" fill="#3CB979" opacity="0.5"/>
-        <rect x="102" y="12" width="4" height="10" fill="#3CB979" opacity="0.7"/>
-      </g>
+      <!-- Bottom fade -->
+      <rect x="0" y="230" width="400" height="50" fill="url(#fadeBottom)"/>
     </g>
 
-    <!-- Side metric tiles -->
-    <g transform="translate(150, 52)">
-      <rect x="0" y="0" width="76" height="62" rx="8" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
-      <text x="10" y="26" font-family="Geist, sans-serif" font-size="22" font-weight="500" fill="#3CB979" letter-spacing="-1">149</text>
-      <text x="10" y="42" font-family="Geist Mono, monospace" font-size="7" letter-spacing="0.8" fill="#565656">DOM NODES</text>
-      <rect x="10" y="50" width="56" height="2" rx="1" fill="#222"/>
-      <rect x="10" y="50" width="14" height="2" rx="1" fill="#3CB979"/>
+    <!-- Floating "reading fiber tree" pill (top-left, outside panel) -->
+    <g transform="translate(-80, -18)">
+      <rect x="0" y="0" width="154" height="30" rx="15" fill="#0f0f0f" stroke="#2E2E2E" stroke-width="1"/>
+      <circle cx="16" cy="15" r="4" fill="#FF7A50"/>
+      <text x="30" y="20" font-family="Geist, sans-serif" font-size="12" font-weight="500" fill="#EDEDED">reading fiber tree</text>
     </g>
-    <g transform="translate(150, 120)">
-      <rect x="0" y="0" width="76" height="62" rx="8" fill="#0f0f0f" stroke="#222" stroke-width="0.8"/>
-      <text x="10" y="26" font-family="Geist, sans-serif" font-size="22" font-weight="500" fill="#EDEDED" letter-spacing="-1">544</text>
-      <text x="56" y="26" font-family="Geist Mono, monospace" font-size="9" fill="#858585">ms</text>
-      <text x="10" y="42" font-family="Geist Mono, monospace" font-size="7" letter-spacing="0.8" fill="#565656">LCP</text>
-      <rect x="10" y="50" width="56" height="2" rx="1" fill="#222"/>
-      <rect x="10" y="50" width="24" height="2" rx="1" fill="#3CB979"/>
+
+    <!-- Floating "0 server calls" pill (bottom-right, outside panel) -->
+    <g transform="translate(282, 266)">
+      <rect x="0" y="0" width="128" height="30" rx="15" fill="#0f0f0f" stroke="#2E2E2E" stroke-width="1"/>
+      <circle cx="16" cy="15" r="4" fill="#3CB979"/>
+      <text x="30" y="20" font-family="Geist, sans-serif" font-size="12" font-weight="500" fill="#EDEDED">0 server calls</text>
     </g>
-  </g>
-
-  <!-- Floating live-widgets pill -->
-  <g transform="translate(655, 55)">
-    <rect x="0" y="0" width="132" height="28" rx="14" fill="#0f0f0f" stroke="#2E2E2E" stroke-width="1"/>
-    <circle cx="14" cy="14" r="3.5" fill="#FF7A50"/>
-    <text x="26" y="18" font-family="Geist, sans-serif" font-size="11" font-weight="500" fill="#EDEDED">live · 32 widgets</text>
-  </g>
-
-  <!-- Floating all-green pill, bottom -->
-  <g transform="translate(1070, 340)">
-    <rect x="0" y="0" width="132" height="28" rx="14" fill="#0f0f0f" stroke="#2E2E2E" stroke-width="1"/>
-    <circle cx="14" cy="14" r="3.5" fill="#3CB979"/>
-    <text x="26" y="18" font-family="Geist, sans-serif" font-size="11" font-weight="500" fill="#EDEDED">all targets green</text>
   </g>
 </svg>
