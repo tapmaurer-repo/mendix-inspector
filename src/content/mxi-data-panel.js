@@ -25,7 +25,7 @@
 
   var TYPE_COLORS = {
     DataView:     '#3B99FC',
-    ListView:     '#2D9C5E',
+    ListView:     '#3DDC97',
     DataGrid2:    '#9333EA',
     DataGrid:     '#9333EA',
     TemplateGrid: '#FF7A50',
@@ -1157,7 +1157,7 @@
     }
 
     if (typeof v === 'boolean') {
-      return '<span style="color:' + (v ? '#2D9C5E' : '#FF5A5A') + ';font-weight:600">' + v + '</span>';
+      return '<span style="color:' + (v ? '#3DDC97' : '#FF5A5A') + ';font-weight:600">' + v + '</span>';
     }
     if (typeof v === 'number') {
       return '<span style="color:#3B99FC">' + v + '</span>';
@@ -1165,7 +1165,7 @@
     if (typeof v === 'string') {
       // GUID-looking strings: show in full (v0.2.46 — plenty of room in the panel)
       if (/^\d{15,}$/.test(v) || /^[0-9a-f]{36}$/i.test(v)) {
-        return '<span style="color:#FFB800;font-family:monospace;font-size:11px;word-break:break-all">' + esc(v) + '</span>';
+        return '<span style="color:#FFB800;font-family:"Geist Mono",monospace;font-size:11px;word-break:break-all">' + esc(v) + '</span>';
       }
       if (v.length > 60) {
         return '<span style="color:#fff" title="' + esc(v) + '">"' +
@@ -1742,7 +1742,7 @@
           var orig = target.textContent;
           var origColor = target.style.color;
           target.innerHTML = '<svg viewBox="0 0 256 256" fill="currentColor" width="10" height="10" style="vertical-align:middle"><path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"/></svg> copied GUID';
-          target.style.color = '#2D9C5E';
+          target.style.color = '#3DDC97';
           setTimeout(function () {
             target.textContent = orig;
             target.style.color = origColor;
@@ -1847,7 +1847,7 @@
     if (!originalTitle) return;
     var orig = originalTitle.textContent;
     originalTitle.innerHTML = '<svg viewBox="0 0 256 256" fill="currentColor" width="10" height="10" style="vertical-align:middle"><path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"/></svg> copied ' + esc(attrName);
-    originalTitle.style.color = '#2D9C5E';
+    originalTitle.style.color = '#3DDC97';
     setTimeout(function () {
       originalTitle.textContent = orig;
       originalTitle.style.color = '';
@@ -2246,7 +2246,7 @@
                             'flex-shrink:0;font-size:10px}',
       '.mxi-dp2-assoc-right{display:flex;align-items:center;gap:6px;',
                              'min-width:0;justify-content:flex-end}',
-      '.mxi-dp2-assoc-check{color:#2D9C5E;font-size:10px;flex-shrink:0}',
+      '.mxi-dp2-assoc-check{color:#3DDC97;font-size:10px;flex-shrink:0}',
       /* Full value — no truncation, monospace, yellow to match GUID pill style */
       '.mxi-dp2-assoc-val{color:#FFB800;font-family:ui-monospace,Menlo,monospace;',
                            'font-size:10px;white-space:nowrap}',

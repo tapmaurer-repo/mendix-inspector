@@ -60,6 +60,9 @@ Client-side scan that surfaces what's reachable from the browser without hitting
 ### Accessibility, Typography, CSS
 Page-wide audits: WCAG level with specific failures, ARIA usage, landmarks, skip link, touch-target sizes (with EU EAA notice). Typography detection of font-family fallbacks and icon fonts. CSS analysis with per-metric tooltips.
 
+### Style Inspector
+Footer button (next to Data). Enters an element-picker mode — hover any element on the page to see its tag, Mendix/custom class chips, full typography (font, size, weight, line-height, letter-spacing, color with swatch), and CSS box (display, position, size, margin, padding) in one tooltip. Padding and margin are painted on the page as coloured overlays (orange = margin, green = padding), same mechanic as browser DevTools. Combines what used to be two separate inspect modes buried in the Typography and CSS sections into a single, discoverable footer button.
+
 ### PDF Export
 One click to export the full report — health score, insights, all sections, metrics, security findings — into a shareable PDF.
 
@@ -92,11 +95,12 @@ Injects on every site (because custom Mendix domains exist and we need to catch 
 4. Browse sections: Performance, Data Sources (auto-refreshing), Security, Accessibility, Typography, CSS, Network, Session
 5. Click the **Data** button at the bottom to open the Data Inspector — search and drill into every entity / object / attribute on the page
 6. Hover entity rows in the Data Inspector → the matching container pulses on the page
-7. Click **PDF** to export a shareable report
-8. Press **ESC** to close the Data Inspector
+7. Click the **Style** button at the bottom to enter element-picker mode — hover any element to see its font, classes, and box model in one tooltip. Covers both typography and CSS.
+8. Click **PDF** to export a shareable report
+9. Press **ESC** to close the Data Inspector, Style Inspector, or any other picker mode
 
 ### Keyboard Shortcuts
-- `Esc` — close Data Inspector
+- `Esc` — close Data Inspector / Style Inspector / any active picker mode
 - `Double-click` on panel header — minimize / restore
 
 ### Console Commands
@@ -172,6 +176,28 @@ window.__mxiPerf.getSummary()
 ---
 
 ## Changelog
+
+### 0.2.3-beta
+Discoverability pass. User-session recordings showed people consistently missing the inspect tools — the "Inspect Mode" button was buried inside the Typography section and the "CSS Inspector" button was inside the CSS Analysis section. If you didn't know they were there and didn't expand both sections, you never saw them. This release promotes inspect to a first-class footer button next to Data and PDF, and consolidates the two old paths.
+
+**Style button in footer** — new `Style` button sits between `Data` and `PDF` in the panel footer. Matches the same short-label rhythm (all three are one word, four-to-five characters). Secondary button style by default; flips to accent-yellow `Style ON` while the picker is active. Title attribute explains the scope on hover so users don't have to guess what "Style" means in practice.
+
+**Combined inspect tooltip** — one hover handler replaces the two old ones (`toggleInspectMode` for typography + `toggleCssInspectMode` for CSS). The new tooltip leads with the tag + Mendix/custom class chips (the "what am I looking at" anchor), then a Typography block (font family, size, weight, line-height, letter-spacing, color with swatch), then a CSS Box block (display, position, size, margin, padding). The box-model overlay — orange for margin, green for padding, painted directly on the page — is retained from the old CSS inspector since it's genuinely useful and doesn't have a browser DevTools equivalent that works well on Mendix-rendered pages.
+
+**Typography and CSS sections kept as page-wide audits** — only the inline inspect buttons were removed. The static analysis (primary font, fonts-used count, icon-font detection, size/weight distributions, stylesheet/rule/!important counts, design-system vs custom class split) is unchanged. The audits answer "is something wrong across this page"; the Style picker answers "why is *this element* styled like this." Different jobs, both kept.
+
+**Legacy inspect modes kept functional but dormant** — `toggleInspectMode` and `toggleCssInspectMode` are still present and callable (ESC handler, `window.__mxi*` globals, main-panel cleanup paths all still reference them) but their buttons no longer exist in the rendered panel, so they're inert in normal use. Every `btn.style.*` write inside them is null-guarded so ghost calls don't throw. Kept rather than deleted to avoid breaking any custom integrations or debug console workflows that rely on the old globals.
+
+**Banner fix** — `readme-banner.svg` was rendering the pixel 'e' in Times on GitHub because the pixel font wasn't embedded in the SVG. Added the `GeistPixelSquare` `@font-face` declaration inline (base64, same woff2 as the website uses). While at it, wrapped every letter in a per-letter `<tspan class="lttr">` and added a CSS keyframe animation that rotates which letter is in pixel form — mirrors the `.lttr.glitch` mechanic from mxinspector.com, but declarative since GitHub strips `<script>` from SVG README embeds.
+
+**Font polish** — swapped the panel's primary sans from Inter to **Geist** (loaded from Google Fonts with Inter kept as a fallback, near-identical metrics so no layout drift), promoted **Geist Mono** as the preferred monospace for every technical reading (entity names, datasource identifiers, attribute keys/values, opIds, URL displays, tabular numeric metrics — all 19 monospace declarations across `inspector.js` and 1 in `mxi-data-panel.js`). An earlier iteration of this pass also experimented with a GeistPixelSquare pixel-font accent on the `MxInspector` title (rotating per-letter glitch) and on the big health-score number; both landed in review as reading more distracting than characterful, so both were reverted and the embedded `@font-face` (38KB base64 woff2) dropped from the CSS. The Geist/Geist Mono swap is the entire font story that ships with 0.2.3-beta.
+
+**Green refresh** — bumped the success/health-good green from the muted `#2D9C5E` (forest) to `#3DDC97` (bright mint). Kept the same teal-lean hue family (~150°) that the original was in but pushed saturation and lightness so it genuinely pops on the dark card background. Applied consistently: the base variable, the score circle when score ≥ 80, the session Online status, the "No security issues detected" success cards, the `.mxi-insight.success` dots, the copy-button confirmation flash, and all associated `rgba(45,156,94,X)` tinted backgrounds/borders were rewritten to `rgba(61,220,151,X)` to keep tinted fills in the same hue family as the solid fill.
+
+**perf-tracker.js bug fixes** — two non-Mendix-site error patterns surfaced while the 0.2.2 beta was in the wild:
+
+- `Uncaught TypeError: url.indexOf is not a function` on sites that call fetch with a non-string URL (observed on eu.eastpak.com). `looksLikeMxCall` and the fetch-wrapper URL extractor both assumed `url` was a string; now both defensively coerce via `String(url)` with a try/catch fallback. Defense-in-depth — one check would have been enough to fix the symptom but two makes the invariant explicit at both boundaries.
+- `Uncaught (in promise) TypeError: Failed to fetch` stack-attributed to perf-tracker.js:675 on CSP-strict sites (Google AI Studio, PayPal, GitHub, TransIP). The rejections aren't caused by the extension — the sites' own ad/analytics fetches get blocked by CSP and the promise rejects normally — but our fetch wrapper frame sits in the call chain, so unhandled rejections show the extension's stack trace and it looks guilty. Detection window halved from 3000ms to 1500ms, which cuts the exposure window in half. 1500ms is still comfortably long enough for any Mendix runtime to boot — `mxclientsystem` script tag lands well before that even on cold cache. Can't eliminate stack attribution entirely while wrapping fetch (inherent to the wrapping pattern), but the noise floor drops substantially.
 
 ### 0.2.2-beta
 Small patch focused on two reliability fixes that surfaced after 0.2.1 was in real use.
@@ -268,17 +294,18 @@ mendix-inspector/
 │   ├── manifest.json
 │   ├── background.js                 # Service worker — injects scripts on icon click
 │   ├── content/
-│   │   ├── inspector.js              # Main UI — panel shell, sections, PDF export (~5,267 lines)
+│   │   ├── inspector.js              # Main UI — panel shell, sections, PDF export (~5,511 lines)
 │   │   ├── mx-data-extractor.js      # React Fiber + Dojo data extraction (~1,104 lines)
 │   │   ├── mxi-layer-stack.js        # Layer-stack module (currently dormant — click-through behaviour didn't land cleanly, kept for future reference)
 │   │   ├── mxi-data-panel.js         # Data Inspector (search, drill, pulse highlight, SPA-nav auto-refresh) (~2,726 lines)
 │   │   ├── mxi-security.js           # Security scanner (secret patterns, CVEs, endpoint probe) (~563 lines)
-│   │   └── perf-tracker.js           # document_start perf + network hook + SPA nav detection + non-Mendix-site auto-unhook (~910 lines)
+│   │   └── perf-tracker.js           # document_start perf + network hook + SPA nav detection + non-Mendix-site auto-unhook (~935 lines)
 │   └── icons/
 ├── releases/
 │   ├── mendix-inspector-v0.2.0-beta.zip
 │   ├── mendix-inspector-v0.2.1-beta.zip
-│   └── mendix-inspector-v0.2.2-beta.zip
+│   ├── mendix-inspector-v0.2.2-beta.zip
+│   └── mendix-inspector-v0.2.3-beta.zip
 └── docs/
     └── screenshots/
 ```

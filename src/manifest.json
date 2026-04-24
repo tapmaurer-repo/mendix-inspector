@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MxInspector",
-  "description": "Mendix Page Inspector & Debugger. A Chrome extension for Mendix developers — drops a dockable panel onto any Mendix app that surfaces page structure, data sources, widgets, performance, accessibility, CSS, security, session context, and the full object graph. X-Ray mode for data containers, Data Inspector with search & drill, PDF export, live data-source autorefresh, security scanner with secret detection. Version 0.2.2-beta.",
-  "version": "0.2.2",
+  "description": "Mendix Page Inspector & Debugger. A Chrome extension for Mendix developers — drops a dockable panel onto any Mendix app that surfaces page structure, data sources, widgets, performance, accessibility, CSS, security, session context, and the full object graph. X-Ray mode for data containers, Data Inspector with search & drill, Style Inspector (typography + CSS) behind a footer button, PDF export, live data-source autorefresh, security scanner with secret detection. Version 0.2.3-beta.",
+  "version": "0.2.3",
   "author": "Tim Maurer",
   
   "icons": {

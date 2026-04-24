@@ -555,6 +555,15 @@
   // clients that route through /_mxprotocol/, /runtime/, or custom paths.
   function looksLikeMxCall(url, body) {
     if (!url) return false;
+    // v0.2.3 — defensive string coercion. `url` is expected to be a string
+    // but some sites / polyfills pass URL objects, Request-like objects with
+    // non-string `.url` properties, etc. Without this guard we throw
+    // "url.indexOf is not a function" and the error gets stack-attributed
+    // to the extension even though the real culprit is the site's fetch
+    // arguments. Observed in the wild on eu.eastpak.com product pages.
+    if (typeof url !== 'string') {
+      try { url = String(url); } catch (e) { return false; }
+    }
     // Classic: URL contains /xas
     if (url.indexOf('xas') > -1) return true;
     // Mendix 10 candidates
@@ -667,6 +676,12 @@
     origFetch = window.fetch;
     _myFetch = window.fetch = function(resource, init) {
       var url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
+      // v0.2.3 — belt-and-braces: some Request-like shapes or URL objects
+      // end up here with a non-string url, which would crash looksLikeMxCall.
+      // Coerce defensively; fall back to empty string if String() itself fails.
+      if (typeof url !== 'string') {
+        try { url = String(url); } catch (e) { url = ''; }
+      }
       var bodyStr = null;
       if (init && typeof init.body === 'string') bodyStr = init.body;
       var isMx = looksLikeMxCall(url, bodyStr);
@@ -720,7 +735,17 @@
         clearInterval(detectTimer);
         return;
       }
-      if (performance.now() - detectStart > 3000) {
+      // v0.2.3 — halved detection window from 3000ms to 1500ms. The longer
+      // window was producing a noisy stream of "Uncaught (in promise)
+      // TypeError: Failed to fetch" errors stack-attributed to our fetch
+      // wrapper on CSP-strict non-Mendix sites (Google AI Studio, PayPal,
+      // GitHub, TransIP, etc). The errors aren't CAUSED by us — the sites'
+      // own ad/analytics fetches get blocked by CSP and reject — but our
+      // wrapper frame appears in the rejection's stack trace and looks
+      // guilty. Faster unhook halves the exposure window. 1500ms is still
+      // plenty for any Mendix runtime to boot — mxclientsystem script tag
+      // lands well before that even on cold cache + slow network.
+      if (performance.now() - detectStart > 1500) {
         clearInterval(detectTimer);
         if (!_mxSiteConfirmed) _unhookTrackers();
       }
