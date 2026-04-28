@@ -330,6 +330,38 @@
             }
           }
         } catch (e) {}
+
+        /* v0.2.4 — Form-open tracking
+         * Goldmine: mx.ui.openForm2(formName, ...) carries the page path as
+         * its first argument for every page that opens — including popups.
+         * mx.ui.getContentForm() only returns the underlying content page,
+         * so popups are invisible to it. We track every openForm call into
+         * a chronological stack; inspector.js reads the tail when it sees
+         * a .modal-dialog and uses that as the popup's page name.
+         * 'openForm2' is the React client API; 'openForm' covers the older
+         * Dojo path. Both are wrapped — they delegate to the original. */
+        try {
+          if (mx.ui && !window.__mxiFormStack) {
+            window.__mxiFormStack = [];
+            var hookOpen = function(name) {
+              var orig = mx.ui[name];
+              if (typeof orig !== 'function') return;
+              mx.ui[name] = function(formName) {
+                try {
+                  if (typeof formName === 'string' && formName.indexOf('.page.xml') > -1) {
+                    window.__mxiFormStack.push({ path: formName, openedAt: Date.now() });
+                    if (window.__mxiFormStack.length > 20) {
+                      window.__mxiFormStack.shift();
+                    }
+                  }
+                } catch (e) {}
+                return orig.apply(this, arguments);
+              };
+            };
+            hookOpen('openForm2');
+            hookOpen('openForm');
+          }
+        } catch (e) {}
       }
     }
     

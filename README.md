@@ -178,6 +178,19 @@ window.__mxiPerf.getSummary()
 
 ## Changelog
 
+### 0.2.4-beta
+Single-issue patch: popup page names were showing wrong or missing. On a `IconThemeSwitcher_Popup` over an `IconThemeSwitcher_Overview` content page, the inspector kept reporting the underlying page or "Unknown" — defeating the whole point of the popup badge.
+
+**Root cause** — the popup detector at `inspector.js:772` walked `[id]` attributes inside `.modal-dialog` looking for the shape `something.Module.Page$something`. That format is mostly a Dojo-era artifact; the React client (Mendix 10/11) emits underscored IDs (`Module_Page_widget`) or no parseable path at all on many widget types. Popups built around a single ListView/DataView routinely had zero matching IDs, so the loop fell through and module/page stayed at their defaults. `mx.ui.getContentForm()` was no help either — by design it returns the *content* form, i.e. the page behind the popup, not the popup itself.
+
+**The fix — `mx.ui.openForm2` interception** — every page that opens in the React client (popups included) flows through `mx.ui.openForm2(formName, …)` with the page path as its first argument (e.g. `"IconThemeSwitcher/IconThemeSwitcher_Popup.page.xml"`). `perf-tracker.js` already polls for `window.mx` at 50ms during boot to grab the version and content form; that same poll now also wraps `openForm2` (and `openForm` for the older Dojo path) and pushes every opened path onto a chronological `window.__mxiFormStack` (capped at 20 entries). When `inspector.js` sees a `.modal-dialog`, the tail of that stack is overwhelmingly the popup currently on screen. Live-tested on Mendix 11.6.3: stack captures the user's actual journey — `Application/Home_Web` → `IconThemeSwitcher/IconThemeSwitcher_Overview` → `IconThemeSwitcher/IconThemeSwitcher_Popup` — and the inspector picks the right tail every time.
+
+**Three-tier lookup** — popup detection now reads: (1) tail of `__mxiFormStack` (the goldmine), (2) React Fiber BFS through the modal element looking for a component with `memoizedProps.path` / `formPath` / `pageName` / `mxform.path` ending in `.page.xml`, (3) the original ID heuristic as final fallback so popups that the old logic *did* handle don't regress. Tier 2 is currently dormant on Mendix 11.6.3 — the form path lives somewhere deeper than `memoizedProps` in this client version (likely on `memoizedState` or behind a closure on the form controller) and the BFS comes back empty. Kept the walk in anyway because (a) it's cheap and only runs when tier 1 misses, and (b) it should catch popups that bypass `openForm2` via routing or shared dialog mechanisms on future Mendix versions.
+
+**Hook is non-invasive** — wrappers delegate to the originals via `orig.apply(this, arguments)`, return value is preserved, exceptions in the bookkeeping are swallowed in a try/catch so the original `openForm2` semantics are never altered. Stack entries are `{path, openedAt}` only — no MxObjects, no DOM refs, no leak risk.
+
+**Bonus side effect** — `__mxiFormStack` is now a free navigation breadcrumb of the last 20 page-opens. Not surfaced in the UI yet, but it's the obvious foundation for a "Page History" section if that ever becomes a roadmap item.
+
 ### 0.2.3-beta
 Discoverability pass. User-session recordings showed people consistently missing the inspect tools — the "Inspect Mode" button was buried inside the Typography section and the "CSS Inspector" button was inside the CSS Analysis section. If you didn't know they were there and didn't expand both sections, you never saw them. This release promotes inspect to a first-class footer button next to Data and PDF, and consolidates the two old paths.
 
@@ -306,7 +319,8 @@ mendix-inspector/
 │   ├── mendix-inspector-v0.2.0-beta.zip
 │   ├── mendix-inspector-v0.2.1-beta.zip
 │   ├── mendix-inspector-v0.2.2-beta.zip
-│   └── mendix-inspector-v0.2.3-beta.zip
+│   ├── mendix-inspector-v0.2.3-beta.zip
+│   └── mendix-inspector-v0.2.4-beta.zip
 └── docs/
     └── screenshots/
 ```

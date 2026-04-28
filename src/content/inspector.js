@@ -769,7 +769,60 @@ if (window.__MxDataPanel && typeof window.__MxDataPanel.getContextEntityNames ==
 }
 
 var modal=document.querySelector(".modal-dialog");
-if(modal){i.popup=true;var ids=modal.querySelectorAll("[id]");for(var j=0;j<ids.length;j++){var parts=ids[j].id.split(".");if(parts.length>=3){i.module=parts[1];i.page=parts[2].split("$")[0];break}}}else{var path="";if(window.mx&&mx.ui&&mx.ui.getContentForm){var form=n(function(){return mx.ui.getContentForm()},null);if(form)path=form.path||""}if(!path&&history.state&&history.state.pageName)path=history.state.pageName;if(path){path=path.replace(".page.xml","").replace(/\//g,".");var dot=path.indexOf(".");if(dot>-1){i.module=path.substring(0,dot);i.page=path.substring(dot+1)}else i.page=path}}
+if(modal){
+  i.popup=true;
+  var popupPath="";
+
+  /* v0.2.4 — Goldmine 1: form stack from mx.ui.openForm2 hook in perf-tracker.
+   * The most recent open is overwhelmingly the popup we're looking at. */
+  try {
+    var stk=window.__mxiFormStack;
+    if(stk&&stk.length){popupPath=stk[stk.length-1].path||"";}
+  } catch(e){}
+
+  /* v0.2.4 — Goldmine 2: React Fiber walk inside the modal.
+   * Mendix's Form/Page React component carries `path` in memoizedProps and
+   * ends in .page.xml. BFS through the fiber tree until we hit it.
+   * Handles popups opened via routing, shared dialogs, or anything that
+   * bypassed mx.ui.openForm2. */
+  if(!popupPath){
+    try {
+      var fk=null,keys=Object.keys(modal);
+      for(var fi=0;fi<keys.length;fi++){
+        if(keys[fi].indexOf("__reactFiber")===0||keys[fi].indexOf("__reactInternalInstance")===0){fk=keys[fi];break;}
+      }
+      var startFiber=fk?modal[fk]:null;
+      if(startFiber){
+        var queue=[startFiber],seen=0;
+        while(queue.length&&seen<200){
+          var f=queue.shift();seen++;
+          var props=f&&f.memoizedProps;
+          if(props){
+            if(typeof props.path==="string"&&props.path.indexOf(".page.xml")>-1){popupPath=props.path;break;}
+            if(typeof props.formPath==="string"&&props.formPath.indexOf(".page.xml")>-1){popupPath=props.formPath;break;}
+            if(typeof props.pageName==="string"&&props.pageName.indexOf(".page.xml")>-1){popupPath=props.pageName;break;}
+            if(props.mxform&&typeof props.mxform.path==="string"&&props.mxform.path){popupPath=props.mxform.path;break;}
+          }
+          if(f.child)queue.push(f.child);
+          if(f.sibling)queue.push(f.sibling);
+        }
+      }
+    } catch(e){}
+  }
+
+  if(popupPath){
+    var pp=popupPath.replace(".page.xml","").replace(/\//g,".");
+    var pd=pp.indexOf(".");
+    if(pd>-1){i.module=pp.substring(0,pd);i.page=pp.substring(pd+1);} else {i.page=pp;}
+  } else {
+    /* Final fallback: original ID heuristic, kept verbatim for backwards compat */
+    var ids=modal.querySelectorAll("[id]");
+    for(var j=0;j<ids.length;j++){
+      var parts=ids[j].id.split(".");
+      if(parts.length>=3){i.module=parts[1];i.page=parts[2].split("$")[0];break;}
+    }
+  }
+}else{var path="";if(window.mx&&mx.ui&&mx.ui.getContentForm){var form=n(function(){return mx.ui.getContentForm()},null);if(form)path=form.path||""}if(!path&&history.state&&history.state.pageName)path=history.state.pageName;if(path){path=path.replace(".page.xml","").replace(/\//g,".");var dot=path.indexOf(".");if(dot>-1){i.module=path.substring(0,dot);i.page=path.substring(dot+1)}else i.page=path}}
 
 if(i.env){var u=i.env.toLowerCase();if(u.indexOf("localhost")>-1||u.indexOf(":8080")>-1)i.envType="Local";else if(u.indexOf("-sandbox")>-1||u.indexOf("mxapps.io")>-1)i.envType="Sandbox";else if(u.indexOf("-accp")>-1)i.envType="Acceptance";else if(u.indexOf("-test")>-1)i.envType="Test";else i.envType="Production"}}();
 
