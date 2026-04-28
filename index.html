@@ -4,24 +4,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MxInspector — DevTools for Mendix</title>
-<meta name="description" content="Dockable Chrome extension for any running Mendix app. Reads the React Fiber tree directly. No server calls.">
+<meta name="description" content="Dockable browser extension for any running Mendix app. Works in Chrome, Edge, and Firefox 128+. Reads the React Fiber tree directly. No server calls.">
 
 <!-- Open Graph / social share -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://mxinspector.com/">
 <meta property="og:title" content="MxInspector — DevTools for Mendix">
-<meta property="og:description" content="Dockable Chrome extension for any running Mendix app. Reads the React Fiber tree directly. No server calls.">
+<meta property="og:description" content="Dockable browser extension for any running Mendix app. Works in Chrome, Edge, and Firefox 128+. Reads the React Fiber tree directly. No server calls.">
 <meta property="og:image" content="https://mxinspector.com/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="MxInspector — DevTools for Mendix. Dockable Chrome extension showing the main inspector panel.">
+<meta property="og:image:alt" content="MxInspector — DevTools for Mendix. Dockable extension for Chrome, Edge, and Firefox showing the main inspector panel.">
 <meta property="og:site_name" content="MxInspector">
 
 <!-- Twitter / X -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:url" content="https://mxinspector.com/">
 <meta name="twitter:title" content="MxInspector — DevTools for Mendix">
-<meta name="twitter:description" content="Dockable Chrome extension for any running Mendix app. Reads the React Fiber tree directly. No server calls.">
+<meta name="twitter:description" content="Dockable browser extension for any running Mendix app. Works in Chrome, Edge, and Firefox 128+. Reads the React Fiber tree directly. No server calls.">
 <meta name="twitter:image" content="https://mxinspector.com/og-image.png">
 
 <!-- Theme -->
@@ -1630,6 +1630,67 @@ body {
 }
 @keyframes cursor-blink { 50% { opacity: 0; } }
 
+/* Install tabs — Chromium / Firefox switcher */
+.install-tabs {
+  display: flex;
+  gap: 4px;
+  max-width: 760px;
+  margin: 0 auto var(--sp-3);
+  padding: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.install-tab {
+  flex: 1;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  letter-spacing: .3px;
+}
+.install-tab:hover { color: var(--fg); }
+.install-tab.is-active {
+  background: var(--bg-lifted);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.install-tab svg { flex-shrink: 0; }
+.install-pane { display: none; }
+.install-pane.is-active { display: block; animation: install-pane-fade .2s ease; }
+@keyframes install-pane-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.install-firefox-note {
+  max-width: 760px;
+  margin: 16px auto 0;
+  padding: 14px 18px;
+  background: rgba(255, 122, 80, .08);
+  border: 1px solid rgba(255, 122, 80, .3);
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+.install-firefox-note strong { color: var(--accent); font-weight: 600; }
+.install-firefox-note code {
+  background: var(--bg);
+  padding: 1px 6px;
+  color: var(--yellow);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 /* Footer — symmetric padding now */
 .footer {
   border-top: 1px solid var(--border);
@@ -1874,7 +1935,7 @@ body {
 
       <a href="#install" class="hero-announce">
         <span class="hero-announce-tag orb-bg">New</span>
-        <span>v0.2.5-beta now available</span>
+        <span>v0.2.6-beta now available — Firefox support added</span>
         <span class="hero-announce-arrow">→</span>
       </a>
 
@@ -1885,7 +1946,7 @@ body {
       <div class="hero-underline"></div>
 
       <p class="hero-subhead">
-        Dockable Chrome extension that drops onto <strong>any running Mendix app</strong> and surfaces the object graph, live data sources, performance, security, and accessibility — reading directly from the React Fiber tree.
+        Dockable browser extension that drops onto <strong>any running Mendix app</strong> and surfaces the object graph, live data sources, performance, security, and accessibility — reading directly from the React Fiber tree. Works in Chrome, Edge, and Firefox 128+.
       </p>
 
       <div class="hero-ctas">
@@ -2238,50 +2299,122 @@ body {
 
 <div class="section-divider"></div>
 
-<!-- INSTALL — now closed box + floating glass decorations -->
+<!-- INSTALL — tabbed: Chromium / Firefox -->
 <section class="section" id="install">
   <div class="container container-narrow">
     <div class="section-header reveal">
       <div class="section-eyebrow">Installation</div>
-      <h2 class="section-title glitchable">Four steps.</h2>
-      <p class="section-intro">Not on the Chrome Web Store yet — grab the latest release and load it unpacked.</p>
+      <h2 class="section-title glitchable">Pick your browser.</h2>
+      <p class="section-intro">Not on the Chrome Web Store or Firefox AMO yet — grab the right release and load it unpacked. Both builds are functionally identical, only the manifest differs.</p>
     </div>
 
-    <div class="div-block install-block">
-      <span class="div-corner tl"></span>
-      <span class="div-corner tr"></span>
-      <span class="div-corner bl"></span>
-      <span class="div-corner br"></span>
+    <div class="install-tabs reveal" role="tablist" aria-label="Browser install instructions">
+      <button class="install-tab is-active" data-install-tab="chromium" role="tab" aria-selected="true" aria-controls="install-pane-chromium">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a10 10 0 0 1 8.66 5H12a5 5 0 0 0-4.33 7.5L3.34 7A10 10 0 0 1 12 2Zm0 20a10 10 0 0 1-9-5.71L7.34 9.5A5 5 0 0 0 12 17a5 5 0 0 0 4.33-2.5L13.66 22a10 10 0 0 1-1.66 0Zm9-14.71L16.5 14.5A5 5 0 0 0 17 12a5 5 0 0 0-4.33-5H21a10 10 0 0 1 0 .29ZM12 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"/></svg>
+        Chromium
+      </button>
+      <button class="install-tab" data-install-tab="firefox" role="tab" aria-selected="false" aria-controls="install-pane-firefox">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M9.27 7.94c-.01 0-.01 0 0 0L9.16 8l.11-.06zm10.51 1.45c-.22-.53-.67-1.11-1.02-1.29.28.55.45 1.1.51 1.51l.001.014C18.74 6.498 16.36 5 13.5 5c-3.03 0-5.5 2.47-5.5 5.5 0 .172.012.342.029.51.029.282.083.557.157.825.28 1.011.86 1.911 1.668 2.591.93.78 2.13 1.24 3.43 1.24.71 0 1.39-.13 2.01-.37C13.7 16.45 11.21 19 8 19c-2.18 0-4.07-1.17-5.13-2.91A9.5 9.5 0 0 0 12 22c5.25 0 9.5-4.25 9.5-9.5 0-1.13-.2-2.21-.55-3.21z"/></svg>
+        Firefox
+      </button>
+    </div>
 
-      <div class="install-terminal reveal">
-        <div class="install-term-header">
-          <span class="install-term-dot r"></span>
-          <span class="install-term-dot y"></span>
-          <span class="install-term-dot g"></span>
-          <span class="install-term-title">mxinspector-install.sh</span>
-        </div>
-        <div class="install-term-body">
-          <div class="install-step">
-            <span class="install-step-num">01</span>
-            <span class="install-step-text"><span class="muted">$</span> download <code>mendix-inspector-v0.2.5-beta.zip</code> from Releases</span>
+    <div class="install-pane is-active" id="install-pane-chromium" role="tabpanel">
+      <div class="div-block install-block">
+        <span class="div-corner tl"></span>
+        <span class="div-corner tr"></span>
+        <span class="div-corner bl"></span>
+        <span class="div-corner br"></span>
+
+        <div class="install-terminal reveal">
+          <div class="install-term-header">
+            <span class="install-term-dot r"></span>
+            <span class="install-term-dot y"></span>
+            <span class="install-term-dot g"></span>
+            <span class="install-term-title">chromium-install.sh — Chrome, Edge, Brave, Opera, Vivaldi, Arc</span>
           </div>
-          <div class="install-step">
-            <span class="install-step-num">02</span>
-            <span class="install-step-text"><span class="muted">$</span> unzip to a local folder</span>
-          </div>
-          <div class="install-step">
-            <span class="install-step-num">03</span>
-            <span class="install-step-text"><span class="muted">$</span> open <code>chrome://extensions</code> → enable Developer mode</span>
-          </div>
-          <div class="install-step">
-            <span class="install-step-num">04</span>
-            <span class="install-step-text"><span class="muted">$</span> click <code>Load unpacked</code> → select the <code>src</code> folder<span class="install-cursor"></span></span>
+          <div class="install-term-body">
+            <div class="install-step">
+              <span class="install-step-num">01</span>
+              <span class="install-step-text"><span class="muted">$</span> download <code>mendix-inspector-v0.2.6-beta-chromium.zip</code> from Releases</span>
+            </div>
+            <div class="install-step">
+              <span class="install-step-num">02</span>
+              <span class="install-step-text"><span class="muted">$</span> unzip to a local folder</span>
+            </div>
+            <div class="install-step">
+              <span class="install-step-num">03</span>
+              <span class="install-step-text"><span class="muted">$</span> open <code>chrome://extensions</code> → enable Developer mode</span>
+            </div>
+            <div class="install-step">
+              <span class="install-step-num">04</span>
+              <span class="install-step-text"><span class="muted">$</span> click <code>Load unpacked</code> → select the unzipped folder<span class="install-cursor"></span></span>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
+    <div class="install-pane" id="install-pane-firefox" role="tabpanel">
+      <div class="div-block install-block">
+        <span class="div-corner tl"></span>
+        <span class="div-corner tr"></span>
+        <span class="div-corner bl"></span>
+        <span class="div-corner br"></span>
+
+        <div class="install-terminal reveal">
+          <div class="install-term-header">
+            <span class="install-term-dot r"></span>
+            <span class="install-term-dot y"></span>
+            <span class="install-term-dot g"></span>
+            <span class="install-term-title">firefox-install.sh — Firefox Developer Edition 128+ (permanent install)</span>
+          </div>
+          <div class="install-term-body">
+            <div class="install-step">
+              <span class="install-step-num">01</span>
+              <span class="install-step-text"><span class="muted">$</span> install <a href="https://www.mozilla.org/firefox/developer/" target="_blank" rel="noopener" style="color:var(--accent)">Firefox Developer Edition</a> (free, runs alongside regular Firefox)</span>
+            </div>
+            <div class="install-step">
+              <span class="install-step-num">02</span>
+              <span class="install-step-text"><span class="muted">$</span> open <code>about:config</code> → set <code>xpinstall.signatures.required</code> = <code>false</code></span>
+            </div>
+            <div class="install-step">
+              <span class="install-step-num">03</span>
+              <span class="install-step-text"><span class="muted">$</span> download <code>mendix-inspector-v0.2.6-beta-firefox.zip</code> from Releases (don't unzip)</span>
+            </div>
+            <div class="install-step">
+              <span class="install-step-num">04</span>
+              <span class="install-step-text"><span class="muted">$</span> open <code>about:addons</code> → gear icon → <code>Install Add-on From File</code> → select the zip<span class="install-cursor"></span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="install-firefox-note">
+        <strong>Why Developer Edition?</strong> Firefox refuses to permanently install unsigned extensions, and the override toggle is missing from standard Firefox Release. Developer Edition (and Nightly, and Firefox ESR) keep the toggle. AMO signing is on the v0.3.x roadmap — once that lands, standard Firefox Release gets one-click install too. Prefer not to install a separate browser? Use <code>about:debugging</code> → <code>Load Temporary Add-on</code> in your regular Firefox — it works but unloads on every browser restart. See the <a href="https://github.com/tapmaurer-repo/mendix-inspector#firefox-128" style="color:var(--accent)">README</a> for the temporary-add-on steps.
+      </div>
+    </div>
   </div>
 </section>
+
+<script>
+(function(){
+  var tabs = document.querySelectorAll('.install-tab');
+  var panes = document.querySelectorAll('.install-pane');
+  tabs.forEach(function(tab){
+    tab.addEventListener('click', function(){
+      var target = tab.getAttribute('data-install-tab');
+      tabs.forEach(function(t){
+        var isActive = t === tab;
+        t.classList.toggle('is-active', isActive);
+        t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      });
+      panes.forEach(function(p){
+        p.classList.toggle('is-active', p.id === 'install-pane-' + target);
+      });
+    });
+  });
+})();
+</script>
 
 <footer class="footer">
   <div class="container">
@@ -2293,7 +2426,7 @@ body {
           <rect x="10" y="10" width="4" height="4" rx="0.5" fill="#fff"/>
           <line x1="37" y1="6" x2="43" y2="18" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
         </svg>
-        <span>Built by <a href="https://timothymaurer.nl">Tim Maurer</a> · MIT · v0.2.5-beta</span>
+        <span>Built by <a href="https://timothymaurer.nl">Tim Maurer</a> · MIT · v0.2.6-beta</span>
       </div>
       <div class="footer-meta">
         <a href="https://github.com/tapmaurer-repo/mendix-inspector">GitHub</a>

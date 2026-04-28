@@ -76,14 +76,56 @@ Injects on every site (because custom Mendix domains exist and we need to catch 
 
 ## Installation
 
-1. Download the latest release ZIP from [Releases](../../releases)
+### Chromium-based browsers (Chrome, Edge, Brave, Opera, Vivaldi, Arc)
+1. Download `mendix-inspector-v0.2.6-beta-chromium.zip` from [Releases](../../releases)
 2. Unzip to a local folder
 3. Open Chrome → `chrome://extensions/` (or Edge → `edge://extensions/`)
 4. Enable **Developer mode** (toggle in top-right)
 5. Click **Load unpacked**
-6. Select the `src` folder from the unzipped release
+6. Select the unzipped folder
 
-> **Firefox support is on the v0.3.0 roadmap.** The extension uses `world: 'MAIN'` injection, which Firefox supports from v128+ — porting needs a separate manifest for Firefox's MV3 flavor.
+### Firefox 128+
+
+> **Heads up — Firefox install is temporary in standard Release.** Firefox refuses to permanently install any extension that hasn't been signed by Mozilla, and Firefox Release builds don't expose the developer override. Until we submit the build through Mozilla's AMO review process (planned for a later v0.3.x patch), there are two paths: the temporary-add-on path (works in any Firefox, unloads on browser restart), and the Developer Edition path (permanent install, but requires a separate Firefox install).
+
+#### Option A — Temporary add-on (any Firefox 128+)
+Easiest, but the extension unloads when Firefox closes — you'll need to repeat these steps each Firefox start:
+
+1. Download `mendix-inspector-v0.2.6-beta-firefox.zip` from [Releases](../../releases)
+2. Unzip to a local folder
+3. Open Firefox → type `about:debugging` in the address bar → press Enter
+4. In the left sidebar, click **This Firefox**
+5. Click **Load Temporary Add-on…** (button near the top of the page)
+6. In the file picker, select the `manifest.json` file inside the unzipped folder
+
+#### Option B — Permanent install via Firefox Developer Edition
+Requires switching to **Firefox Developer Edition** (a free separate Firefox build by Mozilla — runs alongside your regular Firefox, has its own profile). Standard Firefox Release does not support this workaround; Mozilla deliberately removed the override toggle from Release builds in 2016.
+
+1. Download and install **Firefox Developer Edition** from [mozilla.org/firefox/developer](https://www.mozilla.org/firefox/developer/) (free, runs separately from your regular Firefox)
+2. Launch Developer Edition, open a new tab, and type `about:config` in the address bar → press Enter
+3. Click **Accept the Risk and Continue** if prompted
+4. In the search bar at the top of the about:config page, type `xpinstall.signatures.required`
+5. Double-click the matching row to flip its value from `true` to `false`
+6. Download `mendix-inspector-v0.2.6-beta-firefox.zip` from [Releases](../../releases) — but **don't unzip it**, Firefox installs from the zip directly
+7. Open `about:addons` (or click the gear icon in the toolbar → **Add-ons and themes**)
+8. Click the gear icon at the top of the Add-ons page → **Install Add-on From File…**
+9. Select the downloaded `.zip` file
+10. Confirm the install when prompted
+
+Once installed this way, the extension persists across Developer Edition restarts. The same approach works in **Firefox Nightly** and **Firefox ESR** if your colleague is on either of those instead. Firefox ESR is what most enterprises ship, so this path is also relevant for corporate Firefox deployments.
+
+> **AMO submission lands soon** — once Mozilla signs the build, all of this becomes one click and works in standard Firefox Release. That's filed for a v0.3.x patch.
+
+Tested working on Firefox Developer Edition 128+ against Mendix 11.6.3 React client. The Firefox build is functionally identical to the Chromium build — same UI, same data extraction, same features.
+
+### Building from source
+The repo ships a `build.ps1` script that produces both browser builds from the single `src/` tree:
+
+```powershell
+.\build.ps1
+```
+
+Output lands in `releases/mendix-inspector-v<version>-beta-chromium.zip` (Chrome, Edge, and any other Chromium-based browser) and `releases/mendix-inspector-v<version>-beta-firefox.zip` (Firefox 128+). The two builds share `background.js`, all six content scripts, and the icons folder; only the manifest differs (`src/manifest.json` for Chromium with `service_worker` background, `src/manifest.firefox.json` for Firefox with `scripts` event-page background and the required `browser_specific_settings.gecko` block).
 
 ---
 
@@ -140,7 +182,7 @@ window.__mxiPerf.getSummary()
 
 ### v0.3.0
 - **Live Attribute Editing** — edit client-side mxObject values directly in the Data Panel to test dynamic styling, conditional visibility, and widget behaviour without server round-trips or database edits. Opening an attribute makes it editable per type: String (text input), Integer/Long/Decimal (number input), Boolean (true/false toggle), Enumeration (dropdown populated from the enum's known values), DateTime (picker). AutoNumber, Hashed String, Binary, computed attributes, and associations stay read-only in v1. Uses `mxObject.set()` only — **never** `.commit()` — so mutations are purely client-side and revert on page reload; nothing touches the server. Each entity header gets two icon buttons top-right: a toggle to show/hide the orange "EDITED" pills next to mutated attributes (visual noise control — doesn't affect tracking), and a Revert All button that restores every attribute on that entity to its snapshotted original value. Built for the "what does the UI look like if this boolean were false" debugging workflow where today you'd have to edit the DB, refresh, observe, repeat
-- **Firefox support** — port to Firefox's WebExtensions flavor of Manifest V3 (second manifest, `browser_specific_settings`, event-page background instead of service worker). Requires Firefox 128+ for `world: 'MAIN'`. Submit to AMO
+- **AMO signing & submission for Firefox** — the Firefox port shipped in v0.2.6-beta and works end-to-end, but Firefox refuses to permanently install unsigned extensions. Submit the build to Mozilla's AMO review process for an unlisted signed `.xpi` (Mozilla doesn't list it in their directory; we distribute the signed file from GitHub releases). Set up an update manifest so users get auto-updates pulled from GitHub. End result: one-click permanent install for Firefox users instead of the current "Load Temporary Add-on" reload-on-restart workflow
 - **Edge Add-ons Store listing** — the existing build already runs unpacked in Edge (it's Chromium); this is just the store submission so Edge users get one-click install
 - **Visual impairment simulator** — overlay the page through filters that approximate how users with common visual conditions experience it: color-blindness (protanopia, deuteranopia, tritanopia, achromatopsia), low vision (various acuity levels), cataracts, glaucoma (peripheral vision loss), and macular degeneration (central vision loss). Implemented via SVG filters on an overlay layer, toggleable per type
 - **Motor impairment simulator** — cursor-behaviour overlays that approximate reduced motor control: tremor simulation (adds jitter to the pointer), reduced pointer precision (dead-zone around target centre), slower click-to-activation timing, and a "hover trap" highlight for elements smaller than the WCAG 2.2 24×24 minimum target size. Helps you FEEL the gap between "works for me" and "works for a user with Parkinson's or essential tremor"
@@ -177,6 +219,25 @@ window.__mxiPerf.getSummary()
 ---
 
 ## Changelog
+
+### 0.2.6-beta
+First dual-browser release — Firefox 128+ now joins Chrome and Edge as a supported browser.
+
+**Firefox port** — most of the codebase was already browser-agnostic (DOM, React Fiber traversal, `mx.ui.openForm2` hooking, the `Symbol(mxObject)` lookup, and the panel UI all use platform APIs that work identically across Chromium and Firefox). The actual port surface turned out to be small:
+
+- A second manifest, `src/manifest.firefox.json`, sitting next to the Chrome `src/manifest.json`. Differences from Chrome: adds a required `browser_specific_settings.gecko` block with the extension ID (`mxinspector@timothymaurer.nl`) and `strict_min_version: 128.0` (the floor for `world: 'MAIN'` content script injection in Firefox), and replaces `"background": { "service_worker": "background.js" }` with `"background": { "scripts": ["background.js"] }` because Firefox's most reliably-supported MV3 background type across versions is the event-page `scripts` array. The `background.js` source itself didn't need any changes — it works as either flavor.
+- A new `build.ps1` script at the repo root that produces both browser builds from the single `src/` tree. Reads version from `src/manifest.json`, copies source into `dist-chrome/` (deleting the Firefox manifest), copies source into `dist-firefox/` (renaming the Firefox manifest to `manifest.json` since that's the only filename browsers recognize), then zips each into `releases/`. Run with `.\build.ps1` from the repo root.
+- README install section now has separate Chrome/Edge and Firefox subsections plus a "Building from source" section.
+
+**Why the JS code didn't need any changes** — audited every `chrome.*` API call in the codebase. Total surface: `chrome.action.onClicked.addListener` (Firefox MV3 ✓) and `chrome.scripting.executeScript({ world: 'MAIN', ... })` (Firefox 128+ ✓). Everything else runs in `world: 'MAIN'` against page-side globals and DOM APIs. The React Fiber walker uses `Object.keys(el).find(k => k.startsWith('__reactFiber'))` rather than hardcoded suffixes; the Symbol lookup uses `Object.getOwnPropertySymbols(el).find(s => s.description === 'mxObject')` which is portable. Tested live on Mendix 11.6.3 React client running in Firefox 128+ — panel, data extraction, popup detection, the toast on non-Mendix sites, and PDF export all work identically to Chrome.
+
+**Release filename convention changed** — the Chromium zip is now named `mendix-inspector-v0.2.6-beta-chromium.zip` (was previously just `mendix-inspector-v0.2.6-beta.zip` with no browser suffix). Both browser builds now follow the same `-{browser}` suffix pattern so it's unambiguous which file goes with which browser. Earlier release zips keep their original names — this rename only applies from v0.2.6 forward.
+
+**Firefox install paths documented** — README now covers both the temporary-add-on path (works in any Firefox 128+, unloads on browser restart) and the Firefox Developer Edition path (permanent install via `xpinstall.signatures.required = false` in about:config + drag-and-drop install of the zip itself). Same workaround applies to Firefox Nightly and Firefox ESR. Standard Firefox Release does not support the override toggle — Mozilla deliberately removed it from Release builds in 2016.
+
+**Honest about Firefox install limitations** — Firefox refuses to permanently install any extension that hasn't been signed by Mozilla via the AMO submission process. There's no developer override in standard Firefox Release. The proper permanent-install path is AMO submission (signed unlisted distribution from this repo's Releases page is also possible — same Mozilla review/signing, but Mozilla doesn't list it in their directory). That submission is filed for a later v0.3.x patch.
+
+**Filed for v0.3.x** — submit Firefox build to AMO for an unlisted signed `.xpi`, set up an update manifest so users get auto-updates from GitHub releases, document the signed install path in the README. Once that lands, all of the temporary-add-on / Developer Edition contortions go away — standard Firefox Release gets one-click permanent install just like Chrome.
 
 ### 0.2.5-beta
 Two-issue patch focused on Chrome Web Store readiness: silencing all console output on non-Mendix sites, and synchronizing stale version strings that had drifted across multiple releases.
@@ -323,23 +384,27 @@ First patch on top of the 0.2.0 beta. Focus was on polish, Mendix 11 DataGrid2 s
 ```
 mendix-inspector/
 ├── src/
-│   ├── manifest.json
-│   ├── background.js                 # Service worker — injects scripts on icon click
+│   ├── manifest.json                 # Chrome manifest (service_worker background)
+│   ├── manifest.firefox.json         # Firefox manifest (event-page background, gecko ID)
+│   ├── background.js                 # Service worker / event page — injects scripts on icon click
 │   ├── content/
-│   │   ├── inspector.js              # Main UI — panel shell, sections, PDF export (~5,511 lines)
-│   │   ├── mx-data-extractor.js      # React Fiber + Dojo data extraction (~1,104 lines)
+│   │   ├── inspector.js              # Main UI — panel shell, sections, PDF export (~5,580 lines)
+│   │   ├── mx-data-extractor.js      # React Fiber + Dojo data extraction (~1,090 lines)
 │   │   ├── mxi-layer-stack.js        # Layer-stack module (currently dormant — click-through behaviour didn't land cleanly, kept for future reference)
 │   │   ├── mxi-data-panel.js         # Data Inspector (search, drill, pulse highlight, SPA-nav auto-refresh) (~2,726 lines)
 │   │   ├── mxi-security.js           # Security scanner (secret patterns, CVEs, endpoint probe) (~563 lines)
-│   │   └── perf-tracker.js           # document_start perf + network hook + SPA nav detection + non-Mendix-site auto-unhook (~935 lines)
+│   │   └── perf-tracker.js           # document_start perf + network hook + SPA nav detection + non-Mendix-site auto-unhook (~970 lines)
 │   └── icons/
+├── build.ps1                         # Produces both Chrome and Firefox zips from src/
 ├── releases/
 │   ├── mendix-inspector-v0.2.0-beta.zip
 │   ├── mendix-inspector-v0.2.1-beta.zip
 │   ├── mendix-inspector-v0.2.2-beta.zip
 │   ├── mendix-inspector-v0.2.3-beta.zip
 │   ├── mendix-inspector-v0.2.4-beta.zip
-│   └── mendix-inspector-v0.2.5-beta.zip
+│   ├── mendix-inspector-v0.2.5-beta.zip
+│   ├── mendix-inspector-v0.2.6-beta-chromium.zip
+│   └── mendix-inspector-v0.2.6-beta-firefox.zip
 └── docs/
     └── screenshots/
 ```

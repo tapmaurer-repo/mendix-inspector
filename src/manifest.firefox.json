@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "MxInspector",
+  "description": "Mendix Page Inspector & Debugger. A Firefox extension for Mendix developers — drops a dockable panel onto any Mendix app that surfaces page structure, data sources, widgets, performance, accessibility, CSS, security, session context, and the full object graph. X-Ray mode for data containers, Data Inspector with search & drill, Style Inspector (typography + CSS) behind a footer button, PDF export, live data-source autorefresh, security scanner with secret detection.",
+  "version": "0.2.5",
+  "author": "Tim Maurer",
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "mxinspector@timothymaurer.nl",
+      "strict_min_version": "128.0"
+    }
+  },
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    },
+    "default_title": "MxInspector - Click to Inspect"
+  },
+
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+
+  "host_permissions": [
+    "<all_urls>"
+  ],
+
+  "background": {
+    "scripts": ["background.js"]
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/perf-tracker.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/mx-data-extractor.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ],
+
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content/inspector.js",
+        "content/mx-data-extractor.js",
+        "content/mxi-layer-stack.js",
+        "content/mxi-data-panel.js",
+        "content/mxi-security.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
