@@ -1,5 +1,5 @@
 /*! 
- * MxInspector v0.2.4-beta - Mendix Page Inspector & Debugger
+ * MxInspector v0.2.5-beta - Mendix Page Inspector & Debugger
  * Created with ❤️ by Tim Maurer (https://github.com/timmaurer)
  * 
  * MIT License - Free for personal and commercial use
@@ -14,20 +14,15 @@
 /* v0.2.5 — Mendix detection guard. The inspector only injects when the user
  * clicks the toolbar icon, but a click on a non-Mendix tab (github.com,
  * docs.mendix.com, etc.) would render the panel whose CSS contains an
- * @import url("fonts.googleapis.com/...") rule. That import is blocked by
+ * @import url("fonts.googleapis.com/...") rule — that import is blocked by
  * the strict Content Security Policies many sites ship, producing a
- * confusing console error attributed to inspector.js even though nothing
- * Mendix-related is actually wrong. Bail early with a friendly console
- * message — matches the auto-unhook pattern perf-tracker.js already uses
- * on non-Mendix sites. */
+ * confusing console error attributed to inspector.js. Bail SILENTLY (no
+ * console output) so error-tracking tools and CSP-strict pages stay clean.
+ * If the user clicked the icon on a non-Mendix tab and nothing visibly
+ * happens, that's the intended behaviour — they'll figure it out. */
 if (!(window.mx || window.mxui || window.MxApp ||
       document.querySelector('script[src*="mxclientsystem"]') ||
       document.querySelector('[class*="mx-name-"]'))) {
-  console.warn(
-    "%cMxInspector",
-    "background:#FF7A50;color:#fff;font-weight:bold;padding:2px 8px;border-radius:4px;font-family:system-ui",
-    "This page doesn't look like a Mendix app — the inspector won't run here."
-  );
   return;
 }
 
@@ -2534,7 +2529,7 @@ function renderDataSourcesHTML(dsc){
   return html;
 }
 
-var html=css+'<div class="mxi-header" id="mxi-drag-handle"><div class="mxi-header-top"><div class="mxi-logo">'+mascot+'<span class="mxi-title">MxInspector</span></div><div class="mxi-header-buttons"><span class="mxi-badge">'+i.version+'</span><span class="mxi-badge'+(i.client==="React"?" mxi-badge-accent":"")+'">'+i.client+'</span><button class="mxi-icon-btn" id="mxi-info-btn" title="About">'+icon("info",16)+'<div class="mxi-info-tooltip" id="mxi-info-tooltip"><div class="mxi-info-line"><strong>MxInspector</strong> v0.2.4-beta</div><div class="mxi-info-line">Created with ❤️ by <strong>Tim Maurer</strong></div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px">Free for personal & commercial use.<br>MIT License • Attribution required.</div><a href="https://paypal.me/tapmaurer" target="_blank" class="mxi-coffee-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M80,56V24a8,8,0,0,1,16,0V56a8,8,0,0,1-16,0Zm40,8a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,120,64Zm32,0a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,152,64Zm96,56v8a40,40,0,0,1-37.51,39.91,96.59,96.59,0,0,1-27,40.09H208a8,8,0,0,1,0,16H32a8,8,0,0,1,0-16H56.54A96.3,96.3,0,0,1,24,136V88a8,8,0,0,1,8-8H208A40,40,0,0,1,248,120ZM200,96H40v40a80.27,80.27,0,0,0,45.12,72h69.76A80.27,80.27,0,0,0,200,136Zm32,24a24,24,0,0,0-16-22.62V136a95.78,95.78,0,0,1-1.2,15A24,24,0,0,0,232,128Z"/></svg>Buy me a coffee</a></div></button><button class="mxi-icon-btn" id="mxi-close-btn" title="Close">'+icon("x",16)+'</button></div></div><div class="mxi-env"><span>'+envIcon(i.envType)+' '+i.envType+'</span><span class="mxi-env-url">'+(i.env||location.host)+'</span></div>'+metaHtml+'</div><div class="mxi-body"><div class="mxi-score"><div class="mxi-score-circle" style="background:'+scoreColor(i.score)+'">'+i.score+'</div><div class="mxi-score-info"><div class="mxi-score-label">Health: '+scoreLabel+'</div><div class="mxi-score-desc">'+i.warnings.length+' insights • '+i.totalWidgets+' widgets</div></div><button class="mxi-chip-btn" id="mxi-score-info-btn" title="How is this score calculated?" style="align-self:flex-start;margin:-4px -4px 0 auto">'+icon("info",13)+'<div class="mxi-info-tooltip" id="mxi-score-info-tooltip" style="width:280px"><div class="mxi-info-line"><strong>How is this score calculated?</strong></div><div class="mxi-info-line">Starts at 100. Points are deducted when issues are detected:</div><div class="mxi-info-line">• <strong>Performance</strong> — slow load, high DOM, memory, slow requests</div><div class="mxi-info-line">• <strong>Accessibility</strong> — missing alt text, form labels, contrast</div><div class="mxi-info-line">• <strong>Security</strong> — known CVEs, exposed data, URL/form issues</div><div class="mxi-info-line">• <strong>Nesting</strong> — nested data sources, weighted by load impact</div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px;margin-top:10px">Open the <strong>Insights</strong> section below to see the exact deductions applied to this page.</div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px">90+ Excellent · 80–89 Good · 60–79 Fair · &lt;60 Needs Work</div></div></button></div><div class="mxi-page-info"><div class="mxi-page-row"><div class="mxi-page-main"><div class="mxi-page-module">'+i.module+'</div><div style="display:flex;align-items:center"><span class="mxi-page-name" title="'+i.page+'">'+i.page+'</span>'+(i.popup?'<span class="mxi-page-popup">POPUP</span>':'')+'</div></div><button class="mxi-copy-btn" id="mxi-copy-btn" title="Copy page name">'+icon("copy",14)+'</button></div>'+(i.pageParameters.length||i.dataViewEntities.length?'<div style="margin-top:10px;padding-top:10px;border-top:1px solid '+b+'"><div style="font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;display:flex;align-items:center;gap:6px">'+icon("page",12)+' CONTEXT OBJECTS</div><div style="display:flex;flex-wrap:wrap;gap:6px">'+(i.pageParameters.length?i.pageParameters:i.dataViewEntities).map(function(e){return'<span style="background:#2E2E2E;color:#FFFFFF;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:500;border:1px solid #3D3D3D">'+e+'</span>'}).join('')+'</div></div>':'')+'</div>'+
+var html=css+'<div class="mxi-header" id="mxi-drag-handle"><div class="mxi-header-top"><div class="mxi-logo">'+mascot+'<span class="mxi-title">MxInspector</span></div><div class="mxi-header-buttons"><span class="mxi-badge">'+i.version+'</span><span class="mxi-badge'+(i.client==="React"?" mxi-badge-accent":"")+'">'+i.client+'</span><button class="mxi-icon-btn" id="mxi-info-btn" title="About">'+icon("info",16)+'<div class="mxi-info-tooltip" id="mxi-info-tooltip"><div class="mxi-info-line"><strong>MxInspector</strong> v0.2.5-beta</div><div class="mxi-info-line">Created with ❤️ by <strong>Tim Maurer</strong></div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px">Free for personal & commercial use.<br>MIT License • Attribution required.</div><a href="https://paypal.me/tapmaurer" target="_blank" class="mxi-coffee-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M80,56V24a8,8,0,0,1,16,0V56a8,8,0,0,1-16,0Zm40,8a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,120,64Zm32,0a8,8,0,0,0,8-8V24a8,8,0,0,0-16,0V56A8,8,0,0,0,152,64Zm96,56v8a40,40,0,0,1-37.51,39.91,96.59,96.59,0,0,1-27,40.09H208a8,8,0,0,1,0,16H32a8,8,0,0,1,0-16H56.54A96.3,96.3,0,0,1,24,136V88a8,8,0,0,1,8-8H208A40,40,0,0,1,248,120ZM200,96H40v40a80.27,80.27,0,0,0,45.12,72h69.76A80.27,80.27,0,0,0,200,136Zm32,24a24,24,0,0,0-16-22.62V136a95.78,95.78,0,0,1-1.2,15A24,24,0,0,0,232,128Z"/></svg>Buy me a coffee</a></div></button><button class="mxi-icon-btn" id="mxi-close-btn" title="Close">'+icon("x",16)+'</button></div></div><div class="mxi-env"><span>'+envIcon(i.envType)+' '+i.envType+'</span><span class="mxi-env-url">'+(i.env||location.host)+'</span></div>'+metaHtml+'</div><div class="mxi-body"><div class="mxi-score"><div class="mxi-score-circle" style="background:'+scoreColor(i.score)+'">'+i.score+'</div><div class="mxi-score-info"><div class="mxi-score-label">Health: '+scoreLabel+'</div><div class="mxi-score-desc">'+i.warnings.length+' insights • '+i.totalWidgets+' widgets</div></div><button class="mxi-chip-btn" id="mxi-score-info-btn" title="How is this score calculated?" style="align-self:flex-start;margin:-4px -4px 0 auto">'+icon("info",13)+'<div class="mxi-info-tooltip" id="mxi-score-info-tooltip" style="width:280px"><div class="mxi-info-line"><strong>How is this score calculated?</strong></div><div class="mxi-info-line">Starts at 100. Points are deducted when issues are detected:</div><div class="mxi-info-line">• <strong>Performance</strong> — slow load, high DOM, memory, slow requests</div><div class="mxi-info-line">• <strong>Accessibility</strong> — missing alt text, form labels, contrast</div><div class="mxi-info-line">• <strong>Security</strong> — known CVEs, exposed data, URL/form issues</div><div class="mxi-info-line">• <strong>Nesting</strong> — nested data sources, weighted by load impact</div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px;margin-top:10px">Open the <strong>Insights</strong> section below to see the exact deductions applied to this page.</div><div class="mxi-info-line" style="color:#9A9A9A;font-size:10px">90+ Excellent · 80–89 Good · 60–79 Fair · &lt;60 Needs Work</div></div></button></div><div class="mxi-page-info"><div class="mxi-page-row"><div class="mxi-page-main"><div class="mxi-page-module">'+i.module+'</div><div style="display:flex;align-items:center"><span class="mxi-page-name" title="'+i.page+'">'+i.page+'</span>'+(i.popup?'<span class="mxi-page-popup">POPUP</span>':'')+'</div></div><button class="mxi-copy-btn" id="mxi-copy-btn" title="Copy page name">'+icon("copy",14)+'</button></div>'+(i.pageParameters.length||i.dataViewEntities.length?'<div style="margin-top:10px;padding-top:10px;border-top:1px solid '+b+'"><div style="font-size:9px;color:'+x+';text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;display:flex;align-items:center;gap:6px">'+icon("page",12)+' CONTEXT OBJECTS</div><div style="display:flex;flex-wrap:wrap;gap:6px">'+(i.pageParameters.length?i.pageParameters:i.dataViewEntities).map(function(e){return'<span style="background:#2E2E2E;color:#FFFFFF;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:500;border:1px solid #3D3D3D">'+e+'</span>'}).join('')+'</div></div>':'')+'</div>'+
 (insightsHtml?section("insights","Insights ("+i.warnings.length+")","bulb",insightsHtml,false):"")+
 section("perf","Performance","lightning",'<div style="font-size:9px;color:'+x+';margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;font-weight:500">PAGE LOAD METRICS</div><div class="mxi-metrics">'+metric("Load",o(i.loadTime),i.loadTime>4e3?m:i.loadTime>2e3?p:g,"load")+metric("DOM",i.domNodes,i.domNodes>4e3?m:i.domNodes>2e3?p:g,"dom")+metric("Requests",i.totalRequests,null,"requests")+metric("Memory",i.jsHeap?i.jsHeap+"MB":"-",null,"memory")+'</div><div style="font-size:9px;color:'+x+';margin:12px 0 8px;text-transform:uppercase;letter-spacing:1px;font-weight:500">CORE WEB VITALS</div><div class="mxi-metrics">'+metric("FCP",i.firstContentfulPaint?o(i.firstContentfulPaint):"-",i.firstContentfulPaint>1800?p:null,"fcp")+metric("LCP",i.largestContentfulPaint?o(i.largestContentfulPaint):"-",i.largestContentfulPaint>2500?p:null,"lcp")+metric("TTFB",i.ttfb?o(i.ttfb):"-",i.ttfb>600?p:null,"ttfb")+metric("CLS",i.cls?i.cls.toFixed(3):"-",i.cls>0.1?p:null,"cls")+'</div><div style="margin-top:12px;font-size:10px;color:#666;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px">'+icon("info",10)+' <span>Metrics measured on initial page load</span></div>',true)+
 section("widgets","Data Containers","cube",widgetsContent,false)+
@@ -3338,7 +3333,7 @@ pdfHtml+='</div>';
 if(i.slowRequests.length){pdfHtml+='<div class="section" style="background:#fff5f5"><strong>Slow Requests (&gt;1s):</strong><ul>';i.slowRequests.slice(0,5).forEach(function(r){pdfHtml+='<li>'+r.url+' ('+r.duration+'ms)</li>'});pdfHtml+='</ul></div>'}
 
 /* Footer */
-pdfHtml+='<div class="footer">'+logoSvg+'<span>Generated by <strong>MxInspector v0.2.4-beta</strong> • Created by Tim Maurer • <a href="https://paypal.me/tapmaurer" style="color:#FFB800">Support the project</a></span></div></body></html>';
+pdfHtml+='<div class="footer">'+logoSvg+'<span>Generated by <strong>MxInspector v0.2.5-beta</strong> • Created by Tim Maurer • <a href="https://paypal.me/tapmaurer" style="color:#FFB800">Support the project</a></span></div></body></html>';
 
 var win=window.open("","_blank");win.document.write(pdfHtml);win.document.close();setTimeout(function(){win.print()},500)};
 
@@ -3444,7 +3439,9 @@ A.querySelectorAll(".mxi-metric-clickable").forEach(function(el){el.addEventList
   }
 
   if(targets.length===0){
-    console.log("No elements found for",highlightKey||selector);
+    /* v0.2.5 — silently no-op when no targets found. The debug log was
+     * useful while wiring up insight-to-element highlighting, just chatter
+     * once it's working. */
     clearHighlights();
     return;
   }
@@ -3553,7 +3550,10 @@ A.querySelectorAll(".mxi-reveal-btn").forEach(function(btn){
 })();
 
 window.__mxInspectorData=i;
-console.log("%c Mendix Inspector Pro v4.3 ","background:#0595DB;color:white;font-weight:bold",i);
+/* v0.2.5 — render log removed. console.log("Mendix Inspector Pro v4.3", i)
+ * was dumping the entire inspector state object to the console on every
+ * panel render — useful during early dev, just noise now. The state is
+ * still on window.__mxInspectorData for anyone who needs to inspect it. */
 
 /* ===== TYPOGRAPHY INSPECT MODE ===== */
 var inspectModeActive=false;
@@ -5075,7 +5075,11 @@ if ((e.altKey || e.metaKey) && window.__MxLayerStack) {
 
 var target=e.target;
 
-console.log('[MXI Debug] mousedown/pointerdown on:', target.tagName, target.className);
+/* v0.2.5 — [MXI Debug] mousedown/isInput/widgetEl logs removed. Were
+ * tracing every mousedown during widget inspect mode while we were
+ * wiring up the input-click interception fix; logging four lines per
+ * mouse event is way too much noise for shipped code. The interception
+ * logic itself is unchanged — we just stopped narrating it. */
 
 /* Check if target or any ancestor is an input, select, textarea */
 var isInput=target.tagName==="INPUT"||target.tagName==="SELECT"||target.tagName==="TEXTAREA";
@@ -5084,8 +5088,6 @@ var tooltipWrapper=target.closest('[data-tooltip-content],[data-tooltip-id]');
 /* Check if target is inside a pluggable widget or mx-textbox */
 var isTextbox=target.closest('.mx-textbox,.mx-textarea,.mx-dropdown');
 var isPluggable=target.closest('[class*="widget-"]')||target.closest('[class*="pluggable"]');
-
-console.log('[MXI Debug] isInput:', isInput, 'tooltipWrapper:', !!tooltipWrapper, 'isTextbox:', !!isTextbox, 'isPluggable:', !!isPluggable);
 
 if(isInput||tooltipWrapper||isTextbox||isPluggable){
 /* Prevent the input from getting focus and any default behavior */
@@ -5098,7 +5100,6 @@ var widgetEl=target.closest('[class*="mx-name-"]');
 if(!widgetEl&&tooltipWrapper){
 widgetEl=tooltipWrapper.querySelector('[class*="mx-name-"]')||tooltipWrapper.closest('[class*="mx-name-"]');
 }
-console.log('[MXI Debug] Found widgetEl:', widgetEl?widgetEl.className:'null');
 if(widgetEl){
 /* Manually trigger our inspection logic */
 performWidgetInspection(widgetEl);
@@ -5125,7 +5126,6 @@ if(!widgetInspectActive)return;
 if(e.altKey||e.metaKey)return;
 var target=e.target;
 if(target.tagName==="INPUT"||target.tagName==="SELECT"||target.tagName==="TEXTAREA"||target.closest('[data-tooltip-id]')){
-console.log('[MXI Global] Intercepted:', target.tagName);
 e.preventDefault();
 e.stopPropagation();
 e.stopImmediatePropagation();
@@ -5464,7 +5464,7 @@ recordingBtn.title="Recording paused - click to start";
 function getCurrentPage(){var pg="";if(window.mx&&mx.ui&&mx.ui.getContentForm){try{var form=mx.ui.getContentForm();if(form&&form.path)pg=form.path}catch(x){}}return pg||location.href}
 var lastPage=getCurrentPage(),lastWidgets=document.querySelectorAll('[class*="mx-name-"]').length;
 
-function checkForChanges(){var curPage=getCurrentPage(),curWidgets=document.querySelectorAll('[class*="mx-name-"]').length;if(curPage!==lastPage||Math.abs(curWidgets-lastWidgets)>50){console.log("%c Inspector: Refreshing... ","background:#0595DB;color:white");lastPage=curPage;lastWidgets=curWidgets;refresh()}}
+function checkForChanges(){var curPage=getCurrentPage(),curWidgets=document.querySelectorAll('[class*="mx-name-"]').length;if(curPage!==lastPage||Math.abs(curWidgets-lastWidgets)>50){lastPage=curPage;lastWidgets=curWidgets;refresh()}}
 function refresh(){
 /* v0.2.71 — Snapshot UI state before teardown so the rebuilt panel can
  * restore scroll position, which sections are open, which insights are

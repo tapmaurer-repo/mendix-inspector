@@ -174,7 +174,12 @@
       hadActionField: 0,
       unknownActionTypes: {}
     };
-    console.log('%c[MxInspector] Navigation #' + perf.currentNavigation + ' - metrics reset', 'color: #FFB800');
+    /* v0.2.5 — navigation-reset log removed. resetNavigation fires on
+     * every URL/hashchange/popstate, including on non-Mendix sites with
+     * SPA routing — was leaking "Navigation #N - metrics reset" into
+     * those sites' consoles. Reset bookkeeping is internal; user
+     * doesn't need narration. perf.currentNavigation is still readable
+     * via window.__mxiPerf.getSummary() if anyone needs to verify. */
   };
   
   // ===== CORE WEB VITALS via PerformanceObserver =====
@@ -961,7 +966,11 @@
       navigations: perf.navigations.slice(-5)
     };
   };
-  
-  console.log('%c[MxInspector] Performance tracker v1.6 active (Mendix 10 runtimeOperation support + per-navigation DS reset)', 'color: #FFB800; font-weight: bold');
-  
+
+  /* v0.2.5 — startup chatter removed. The "Performance tracker v1.6 active"
+   * console.log used to fire on every page load including non-Mendix sites,
+   * leaking the extension's name to third-party error trackers and adding
+   * pointless noise. The tracker's presence is detectable via window.__mxiPerf
+   * for anyone who actually needs to verify it loaded. */
+
 })();

@@ -43,7 +43,11 @@ chrome.action.onClicked.addListener(async (tab) => {
       world: 'MAIN'
     });
 
-    console.log('MxInspector v0.2.43: Injected successfully');
+    /* v0.2.5 — "Injected successfully" log removed. Was firing on every
+     * icon click on every site (including non-Mendix), and the version
+     * string had drifted to v0.2.43 from when this codebase's version
+     * naming was different. Failure path keeps console.error since
+     * silent injection failures would be hard to diagnose. */
   } catch (error) {
     console.error('MxInspector: Failed to inject', error);
   }

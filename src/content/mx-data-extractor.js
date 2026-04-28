@@ -160,12 +160,11 @@
     var attributes = [];
     var associations = [];
     
-    // Debug: log the mxObj structure once
-    if (!window.__mxiLoggedOnce) {
-      window.__mxiLoggedOnce = true;
-      console.log('[MxInspector] MxObject structure:', mxObj);
-      if (mxObj._jsonData) console.log('[MxInspector] _jsonData:', mxObj._jsonData);
-    }
+    /* v0.2.5 — debug log block removed. Was firing console.log of the
+     * raw MxObject structure once per page session — useful during early
+     * reverse-engineering of Mendix's client internals, dead weight in
+     * shipped code. The mxObj is still inspectable via the Data Inspector
+     * UI for anyone who needs it. */
     
     try {
       // Method 1: Try getAttributes() method (Mendix 7-9)

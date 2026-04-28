@@ -559,5 +559,5 @@
     DOC_ENDPOINTS:       DOC_ENDPOINTS
   };
 
-  console.log('[MXI] Security module v0.2.43 loaded');
+  /* v0.2.5 — startup chatter removed (was leaking on non-Mendix sites). */
 })();

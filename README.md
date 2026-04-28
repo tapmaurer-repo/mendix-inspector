@@ -178,6 +178,24 @@ window.__mxiPerf.getSummary()
 
 ## Changelog
 
+### 0.2.5-beta
+Two-issue patch focused on Chrome Web Store readiness: silencing all console output on non-Mendix sites, and synchronizing stale version strings that had drifted across multiple releases.
+
+**Non-Mendix site silence** — clicking the MxInspector icon on github.com (or any CSP-strict site) was producing a confusing `@import url("fonts.googleapis.com/...")` violation attributed to `inspector.js`, plus several startup `console.log` calls that leaked the extension's name into third-party error-tracking dashboards on unrelated sites. Audited every entry point:
+
+- **`inspector.js`** — added a Mendix detection guard at the IIFE entry that bails silently if `window.mx` / `window.mxui` / `window.MxApp` / an `mxclientsystem` script tag / any `mx-name-*` element are all absent. The whole panel render — including its CSS string with the Google Fonts `@import` — never executes on non-Mendix pages, so the CSP violation can never surface.
+- **`perf-tracker.js`** — removed the `Performance tracker v1.6 active` startup log (fired on every page load including non-Mendix) and the `Navigation #N - metrics reset` log (fired on every URL/hashchange/popstate including on SPA-routed non-Mendix sites). Auto-unhook behaviour after 1500ms unchanged.
+- **`mxi-layer-stack.js` and `mxi-security.js`** — removed `[MXI] Layer stack module loaded` and `[MXI] Security module v0.2.43 loaded` startup chatter. These were just announcing the modules' existence; load can be verified via `window.__MxLayerStack` / `window.__MxSecurity` for anyone who needs to.
+- **`mx-data-extractor.js`** — removed a `__mxiLoggedOnce`-gated debug block that was dumping the raw MxObject structure once per page session. Useful while reverse-engineering the React client internals; dead weight in shipped code.
+- **`inspector.js`** (additional) — removed five more dev-time logs: the panel-render state dump (`Mendix Inspector Pro v4.3` + entire `i` object on every render), four `[MXI Debug]`/`[MXI Global]` logs that fired on every mousedown during widget inspect mode (leftovers from the input-click interception work), the `No elements found for` fallback log, and the `Inspector: Refreshing...` chatter on every detected page change.
+- **`background.js`** — removed the `MxInspector v0.2.43: Injected successfully` log (fired on every icon click on every site; version string also drifted from v0.2.43 to current naming convention several releases ago).
+
+What remains is intentional and unreachable on non-Mendix pages: `console.warn` calls inside `try/catch` error handlers (4 in `mx-data-extractor.js`, 4 in `inspector.js` — only fire on actual extraction errors on real Mendix data), `Recording started/stopped` in `perf-tracker.js` (only fires when user toggles the recording button in the inspector footer, which is silent-guarded), and the diagnostic `console.group` block in `mxi-data-panel.js`'s `diagnose()` (only fires when user manually calls `window.__MxDataPanel.diagnose()` from the console).
+
+**Stale version strings synchronized** — three hardcoded version strings had been carrying `v0.2.2-beta` since before the v0.2.3 release: the `inspector.js` file header, the About tooltip in the panel header (visible to the user on every panel open), and the PDF export footer (printed on every exported report). The `manifest.json` description text also still claimed "Version 0.2.3-beta" inside its narrative. All four now read v0.2.5-beta, matching the manifest version field. The `v0.2.43` literal in `background.js` (a relic from a different version-naming era of this codebase) was removed entirely along with its log line.
+
+**Filed for v0.2.6** — these version strings have drifted on every release since 0.2.2. The proper fix is to centralize: read the version once via `chrome.runtime.getManifest().version` at boot and template it into the three places. Out of scope here because doing it cleanly requires touching the IIFE structure and there's enough surface area in this release already.
+
 ### 0.2.4-beta
 Single-issue patch: popup page names were showing wrong or missing. On a `IconThemeSwitcher_Popup` over an `IconThemeSwitcher_Overview` content page, the inspector kept reporting the underlying page or "Unknown" — defeating the whole point of the popup badge.
 
@@ -320,7 +338,8 @@ mendix-inspector/
 │   ├── mendix-inspector-v0.2.1-beta.zip
 │   ├── mendix-inspector-v0.2.2-beta.zip
 │   ├── mendix-inspector-v0.2.3-beta.zip
-│   └── mendix-inspector-v0.2.4-beta.zip
+│   ├── mendix-inspector-v0.2.4-beta.zip
+│   └── mendix-inspector-v0.2.5-beta.zip
 └── docs/
     └── screenshots/
 ```

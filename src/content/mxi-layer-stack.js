@@ -344,5 +344,5 @@
     }
   };
 
-  console.log('[MXI] Layer stack module loaded (v0.2.1)');
+  /* v0.2.5 — startup chatter removed (was leaking on non-Mendix sites). */
 })();
