@@ -16,13 +16,55 @@
  * docs.mendix.com, etc.) would render the panel whose CSS contains an
  * @import url("fonts.googleapis.com/...") rule — that import is blocked by
  * the strict Content Security Policies many sites ship, producing a
- * confusing console error attributed to inspector.js. Bail SILENTLY (no
- * console output) so error-tracking tools and CSP-strict pages stay clean.
- * If the user clicked the icon on a non-Mendix tab and nothing visibly
- * happens, that's the intended behaviour — they'll figure it out. */
+ * confusing console error attributed to inspector.js. Instead of rendering,
+ * we show a small friendly toast in MxInspector's visual language. The
+ * toast is built entirely from inline styles + inline SVG with system-ui
+ * fonts, so it never triggers CSP rules even on the strictest sites. */
+function showNotMendixToast(){
+  if(document.getElementById("mxi-not-mendix-toast"))return;
+  var t=document.createElement("div");
+  t.id="mxi-not-mendix-toast";
+  t.style.cssText=
+    "position:fixed;top:20px;right:20px;"+
+    "background:#141414;color:#FFFFFF;"+
+    "padding:14px 18px;border-radius:14px;"+
+    "box-shadow:0 0 0 1px #2E2E2E,0 25px 80px rgba(0,0,0,.6);"+
+    "font-family:system-ui,-apple-system,'Segoe UI',sans-serif;"+
+    "z-index:2147483647;display:flex;align-items:center;gap:12px;"+
+    "max-width:340px;cursor:pointer;letter-spacing:-.1px;"+
+    "transform:translateX(20px);opacity:0;"+
+    "transition:transform .25s ease-out,opacity .25s ease-out";
+  var iconBox=document.createElement("div");
+  iconBox.style.cssText="width:32px;height:32px;border-radius:9px;background:rgba(255,122,80,.14);display:flex;align-items:center;justify-content:center;flex-shrink:0";
+  iconBox.innerHTML='<svg width="18" height="18" viewBox="0 0 256 256" fill="#FF7A50" xmlns="http://www.w3.org/2000/svg"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm-12,80a12,12,0,0,1,24,0v40a12,12,0,0,1-24,0Zm12,76a16,16,0,1,1,16-16A16,16,0,0,1,128,180Z"/></svg>';
+  var text=document.createElement("div");
+  text.style.cssText="flex:1;line-height:1.4;min-width:0";
+  text.innerHTML=
+    '<div style="font-weight:600;font-size:13px;color:#FFFFFF;margin-bottom:2px">Whoops! Not a Mendix site</div>'+
+    '<div style="font-size:11px;color:#9A9A9A">MxInspector only runs on Mendix apps</div>';
+  t.appendChild(iconBox);
+  t.appendChild(text);
+  document.body.appendChild(t);
+  requestAnimationFrame(function(){
+    t.style.transform="translateX(0)";
+    t.style.opacity="1";
+  });
+  var dismissed=false;
+  function dismiss(){
+    if(dismissed)return;
+    dismissed=true;
+    t.style.transform="translateX(20px)";
+    t.style.opacity="0";
+    setTimeout(function(){if(t.parentNode)t.remove();},260);
+  }
+  t.addEventListener("click",dismiss);
+  setTimeout(dismiss,3500);
+}
+
 if (!(window.mx || window.mxui || window.MxApp ||
       document.querySelector('script[src*="mxclientsystem"]') ||
       document.querySelector('[class*="mx-name-"]'))) {
+  showNotMendixToast();
   return;
 }
 
