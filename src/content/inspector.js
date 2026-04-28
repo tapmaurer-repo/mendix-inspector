@@ -11,6 +11,26 @@
  * Support the creator: https://paypal.me/tapmaurer
  */!function e(){"use strict";window.__mxInspectorRun=e;
 
+/* v0.2.5 — Mendix detection guard. The inspector only injects when the user
+ * clicks the toolbar icon, but a click on a non-Mendix tab (github.com,
+ * docs.mendix.com, etc.) would render the panel whose CSS contains an
+ * @import url("fonts.googleapis.com/...") rule. That import is blocked by
+ * the strict Content Security Policies many sites ship, producing a
+ * confusing console error attributed to inspector.js even though nothing
+ * Mendix-related is actually wrong. Bail early with a friendly console
+ * message — matches the auto-unhook pattern perf-tracker.js already uses
+ * on non-Mendix sites. */
+if (!(window.mx || window.mxui || window.MxApp ||
+      document.querySelector('script[src*="mxclientsystem"]') ||
+      document.querySelector('[class*="mx-name-"]'))) {
+  console.warn(
+    "%cMxInspector",
+    "background:#FF7A50;color:#fff;font-weight:bold;padding:2px 8px;border-radius:4px;font-family:system-ui",
+    "This page doesn't look like a Mendix app — the inspector won't run here."
+  );
+  return;
+}
+
 /* ===== ICONS ===== */
 var IC={info:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"/></svg>',
 copy:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216a8,8,0,0,0,8,8H168a8,8,0,0,0,8-8V176h40a8,8,0,0,0,8-8V40A8,8,0,0,0,216,32ZM160,208H48V96H160Zm48-48H176V88a8,8,0,0,0-8-8H96V48H208Z"/></svg>',
